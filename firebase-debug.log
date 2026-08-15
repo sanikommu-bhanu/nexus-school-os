@@ -1,0 +1,26 @@
+[debug] [2026-08-15T10:47:26.575Z] ----------------------------------------------------------------------
+[debug] [2026-08-15T10:47:26.579Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\bhanu\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js emulators:start --only auth firestore --project nexus-school-os
+[debug] [2026-08-15T10:47:26.580Z] CLI Version:   15.24.0
+[debug] [2026-08-15T10:47:26.580Z] Platform:      win32
+[debug] [2026-08-15T10:47:26.581Z] Node Version:  v22.20.0
+[debug] [2026-08-15T10:47:26.581Z] Detected Agent: claude-code_2-1-233_agent
+[debug] [2026-08-15T10:47:26.581Z] Time:          Sat Aug 15 2026 16:17:26 GMT+0530 (India Standard Time)
+[debug] [2026-08-15T10:47:26.581Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-08-15T10:47:28.980Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-08-15T10:47:28.981Z] > authorizing via signed-in user (bhanusrireddy40@gmail.com)
+[debug] [2026-08-15T10:47:29.175Z] openjdk version "21.0.12" 2026-07-21 LTS
+
+[debug] [2026-08-15T10:47:29.177Z] OpenJDK Runtime Environment Temurin-21.0.12+8 (build 21.0.12+8-LTS)
+OpenJDK 64-Bit Server VM Temurin-21.0.12+8 (build 21.0.12+8-LTS, mixed mode, sharing)
+
+[debug] [2026-08-15T10:47:29.202Z] Parsed Java major version: 21
+[info] i  emulators: Starting emulators: auth, firestore {"metadata":{"emulator":{"name":"hub"},"message":"Starting emulators: auth, firestore"}}
+[debug] [2026-08-15T10:47:29.262Z] [logging] Logging Emulator only supports listening on one address (127.0.0.1). Not listening on ::1
+[debug] [2026-08-15T10:47:29.262Z] [auth] Authentication Emulator only supports listening on one address (127.0.0.1). Not listening on ::1
+[debug] [2026-08-15T10:47:29.262Z] [firestore] Firestore Emulator only supports listening on one address (127.0.0.1). Not listening on ::1
+[debug] [2026-08-15T10:47:29.262Z] [firestore.websocket] websocket server for firestore only supports listening on one address (127.0.0.1). Not listening on ::1
+[debug] [2026-08-15T10:47:29.262Z] assigned listening specs for emulators {"user":{"hub":[{"address":"127.0.0.1","family":"IPv4","port":4400},{"address":"::1","family":"IPv6","port":4400}],"ui":[{"address":"127.0.0.1","family":"IPv4","port":4000},{"address":"::1","family":"IPv6","port":4000}],"logging":[{"address":"127.0.0.1","family":"IPv4","port":4500}],"auth":[{"address":"127.0.0.1","family":"IPv4","port":9099}],"firestore":[{"address":"127.0.0.1","family":"IPv4","port":8080}],"firestore.websocket":[{"address":"127.0.0.1","family":"IPv4","port":9150}]},"metadata":{"message":"assigned listening specs for emulators"}}
+[debug] [2026-08-15T10:47:29.273Z] Write emulator hub locator at C:\Users\bhanu\AppData\Local\Temp\hub-nexus-school-os.json
+[info] i  firestore: downloading cloud-firestore-emulator-v1.21.0.jar... {"metadata":{"emulator":{"name":"firestore"},"message":"downloading cloud-firestore-emulator-v1.21.0.jar..."}}
+[debug] [2026-08-15T10:47:29.322Z] >>> [apiv2][query] GET https://storage.googleapis.com/firebase-preview-drop/emulator/cloud-firestore-emulator-v1.21.0.jar 

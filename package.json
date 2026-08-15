@@ -6,7 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "dev:emulator": "cross-env NEXT_PUBLIC_USE_FIREBASE_EMULATOR=1 next dev",
+    "emulators": "firebase emulators:start --only auth,firestore,storage --project nexus-school-os",
+    "test:rules": "node tests/rules.test.mjs",
+    "test:rules:ci": "firebase emulators:exec --only firestore --project nexus-school-os \"node tests/rules.test.mjs\""
   },
   "dependencies": {
     "clsx": "2.1.1",
@@ -27,6 +32,7 @@
     "@types/react": "18.3.3",
     "@types/react-dom": "18.3.0",
     "autoprefixer": "10.4.19",
+    "cross-env": "^7.0.3",
     "eslint": "8.57.0",
     "eslint-config-next": "14.2.5",
     "postcss": "8.4.40",
