@@ -22,19 +22,25 @@ export async function createSchool(
   data: Pick<School, "name" | "type" | "city" | "state" | "logoURL" | "contactEmail" | "contactPhone">
 ): Promise<School> {
   if (!db) throw new Error("Firebase isn't configured.");
+  // Local const so the null-check narrowing survives into the
+  // transaction closure below — `db` is an imported binding, which
+  // TypeScript will not keep narrowed across a function boundary.
+  const database = db;
 
-  // Collision-resistant code, verified unique via transaction read.
+  // Collision-resistant code. The uniqueness scan runs BEFORE the
+  // transaction: `getDocs` is an ordinary query, not a transactional
+  // read, so running it inside the callback gave no atomicity while
+  // still re-running on every transaction retry.
   let code = generateJoinCode("SCH");
-  const schoolRef = doc(collection(db, "schools"));
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const existing = await getDocs(query(collection(database, "schools"), where("code", "==", code)));
+    if (existing.empty) break;
+    code = generateJoinCode("SCH");
+  }
 
-  await runTransaction(db, async (tx) => {
-    // Retry a few times in the unlikely event of a collision.
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const existing = await getDocs(query(collection(db, "schools"), where("code", "==", code)));
-      if (existing.empty) break;
-      code = generateJoinCode("SCH");
-    }
+  const schoolRef = doc(collection(database, "schools"));
 
+  await runTransaction(database, async (tx) => {
     tx.set(schoolRef, {
       id: schoolRef.id,
       ownerId,
@@ -44,7 +50,7 @@ export async function createSchool(
       updatedAt: serverTimestamp(),
     });
 
-    tx.set(doc(db, "schools", schoolRef.id, "members", ownerId), {
+    tx.set(doc(database, "schools", schoolRef.id, "members", ownerId), {
       userId: ownerId,
       schoolId: schoolRef.id,
       role: "admin" as Role,

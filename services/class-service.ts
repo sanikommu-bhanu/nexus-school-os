@@ -26,9 +26,12 @@ export async function createClass(
   data: Pick<ClassEntity, "name" | "grade" | "section" | "subject">
 ): Promise<ClassEntity> {
   if (!db) throw new Error("Firebase isn't configured.");
+  // Local const so the null-check narrowing survives into the
+  // transaction closure below (see school-service.ts for the same note).
+  const database = db;
 
   let code = generateClassCode(data.grade, data.section, data.subject);
-  const classRef = doc(collection(db, "schools", schoolId, "classes"));
+  const classRef = doc(collection(database, "schools", schoolId, "classes"));
 
   // Denormalize the teacher's display name onto the class doc itself
   // (self-read — the teacher is always reading their own profile here,
@@ -38,18 +41,21 @@ export async function createClass(
   // users/{teacherId} — a brand-new student hasn't joined that
   // teacher's school yet at that point, so a direct users/ read would
   // fail under the tightened per-school users rule (see firestore.rules).
-  const teacherSnap = await getDoc(doc(db, "users", teacherId));
+  const teacherSnap = await getDoc(doc(database, "users", teacherId));
   const teacherName = teacherSnap.exists() ? ((teacherSnap.data() as { fullName?: string }).fullName ?? "Teacher") : "Teacher";
 
-  await runTransaction(db, async (tx) => {
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const existing = await getDocs(
-        query(collectionGroup(db!, "classes"), where("code", "==", code))
-      );
-      if (existing.empty) break;
-      code = generateClassCode(data.grade, data.section, data.subject);
-    }
+  // Uniqueness scan runs BEFORE the transaction — `getDocs` is not a
+  // transactional read, so inside the callback it bought no atomicity
+  // while re-running on every retry (same fix as createSchool).
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const existing = await getDocs(
+      query(collectionGroup(database, "classes"), where("code", "==", code))
+    );
+    if (existing.empty) break;
+    code = generateClassCode(data.grade, data.section, data.subject);
+  }
 
+  await runTransaction(database, async (tx) => {
     tx.set(classRef, {
       id: classRef.id,
       schoolId,
@@ -62,7 +68,7 @@ export async function createClass(
       updatedAt: serverTimestamp(),
     });
 
-    tx.set(doc(db, "schools", schoolId, "classes", classRef.id, "members", teacherId), {
+    tx.set(doc(database, "schools", schoolId, "classes", classRef.id, "members", teacherId), {
       userId: teacherId,
       classId: classRef.id,
       schoolId,

@@ -111,7 +111,7 @@ export async function sendMessage(
     text: trimmed,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-  } as MessageItem);
+  });
 
   await updateDoc(doc(db, "schools", schoolId, "conversations", conversationId), {
     lastMessage: trimmed.slice(0, 140),

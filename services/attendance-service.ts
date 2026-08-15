@@ -43,11 +43,22 @@ export async function saveAttendance(
   entries: { studentId: string; status: AttendanceStatus }[]
 ): Promise<void> {
   if (!db) throw new Error("Firebase isn't configured.");
-  const batch = writeBatch(db);
+  const database = db;
+  const batch = writeBatch(database);
+
+  // Which of these records already exist? Re-saving the same class/day
+  // is the normal edit path (and the retry path), so `createdAt` must
+  // only be stamped on a genuinely new record — a blind
+  // `set(..., {merge:true})` with createdAt would reset "when was
+  // attendance first taken for this day" on every correction.
+  // One extra query, not one per student.
+  const existingIds = new Set(
+    (await getAttendanceForClassDate(schoolId, classId, date)).map((r) => r.id)
+  );
 
   for (const entry of entries) {
     const id = recordId(classId, entry.studentId, date);
-    const ref = doc(db, "schools", schoolId, "attendance", id);
+    const ref = doc(database, "schools", schoolId, "attendance", id);
     batch.set(
       ref,
       {
@@ -59,8 +70,8 @@ export async function saveAttendance(
         status: entry.status,
         markedBy,
         updatedAt: serverTimestamp(),
-        createdAt: serverTimestamp(),
-      } as AttendanceRecord,
+        ...(existingIds.has(id) ? {} : { createdAt: serverTimestamp() }),
+      },
       { merge: true }
     );
   }

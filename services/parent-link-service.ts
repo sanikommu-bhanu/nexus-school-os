@@ -96,7 +96,7 @@ export async function linkParentToStudent(
       verified: true,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
-    } as ParentStudentLink);
+    });
 
     tx.set(
       doc(db!, "parents", parentId),

@@ -8,13 +8,31 @@
 // never hardcode keys here.
 // ============================================================
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider, type Auth } from "firebase/auth";
-import { getFirestore, type Firestore } from "firebase/firestore";
+import { getAuth, connectAuthEmulator, GoogleAuthProvider, type Auth } from "firebase/auth";
+import { getFirestore, connectFirestoreEmulator, type Firestore } from "firebase/firestore";
+
+// ------------------------------------------------------------
+// Local emulator mode.
+// Set NEXT_PUBLIC_USE_FIREBASE_EMULATOR=1 (see .env.example) to point
+// Auth + Firestore at the local Firebase emulators instead of the real
+// project. This is what makes it possible to exercise firestore.rules
+// and real writes without touching production data.
+// Ports mirror firebase.json's `emulators` block.
+// ------------------------------------------------------------
+export const useEmulator = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === "1";
+
+const EMULATOR_HOST = process.env.NEXT_PUBLIC_FIREBASE_EMULATOR_HOST || "127.0.0.1";
+const FIRESTORE_EMULATOR_PORT = Number(process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_PORT || 8080);
+const AUTH_EMULATOR_PORT = Number(process.env.NEXT_PUBLIC_AUTH_EMULATOR_PORT || 9099);
 
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  // Against the emulator the API key is never validated, so a demo
+  // value is enough — this lets the emulator run with no real project
+  // credentials present at all.
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || (useEmulator ? "demo-api-key" : undefined),
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  projectId:
+    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || (useEmulator ? "nexus-school-os" : undefined),
   storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
@@ -30,8 +48,38 @@ function getFirebaseApp(): FirebaseApp | null {
 
 const app = getFirebaseApp();
 
-export const auth: Auth | null = app ? getAuth(app) : null;
-export const db: Firestore | null = app ? getFirestore(app) : null;
+function buildAuth(instance: FirebaseApp): Auth {
+  const a = getAuth(instance);
+  if (useEmulator) {
+    connectAuthEmulator(a, `http://${EMULATOR_HOST}:${AUTH_EMULATOR_PORT}`, {
+      disableWarnings: true,
+    });
+  }
+  return a;
+}
+
+function buildDb(instance: FirebaseApp): Firestore {
+  const f = getFirestore(instance);
+  if (useEmulator) {
+    connectFirestoreEmulator(f, EMULATOR_HOST, FIRESTORE_EMULATOR_PORT);
+  }
+  return f;
+}
+
+// getApps() is re-checked above, but Next's fast-refresh can re-run this
+// module while the SDK instance survives; connect*Emulator throws if
+// called twice on an already-started instance, so guard on a global.
+declare global {
+  // eslint-disable-next-line no-var
+  var __nexusFirebase__: { auth: Auth; db: Firestore } | undefined;
+}
+
+const instances = app
+  ? (globalThis.__nexusFirebase__ ??= { auth: buildAuth(app), db: buildDb(app) })
+  : undefined;
+
+export const auth: Auth | null = instances?.auth ?? null;
+export const db: Firestore | null = instances?.db ?? null;
 export const googleProvider = new GoogleAuthProvider();
 
 export const isFirebaseConfigured = Boolean(app);

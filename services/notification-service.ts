@@ -7,6 +7,7 @@
 import { db } from "@/lib/firebase";
 import {
   doc,
+  setDoc,
   collection,
   query,
   where,
@@ -28,17 +29,15 @@ export async function createNotification(
 ): Promise<void> {
   if (!db) return;
   const ref = doc(collection(db, "schools", schoolId, "notifications"));
-  await import("firebase/firestore").then(({ setDoc }) =>
-    setDoc(ref, {
-      id: ref.id,
-      schoolId,
-      recipientId,
-      read: false,
-      ...data,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    } as NotificationItem)
-  );
+  await setDoc(ref, {
+    id: ref.id,
+    schoolId,
+    recipientId,
+    read: false,
+    ...data,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
 }
 
 export function subscribeToNotifications(

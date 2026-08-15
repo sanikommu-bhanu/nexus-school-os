@@ -53,7 +53,7 @@ export async function createAssignment(
       status: "pending" as SubmissionStatus,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
-    } as AssignmentSubmission);
+    });
   }
   await batch.commit();
 
