@@ -1,0 +1,111 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-glass-border;
+  }
+  html,
+  body {
+    @apply bg-base-950 text-ink antialiased;
+    height: 100%;
+  }
+  ::selection {
+    @apply bg-action/30 text-white;
+  }
+}
+
+@layer components {
+  /* ---------------------------------------------------------
+     App shell: the atmospheric nebula background used behind
+     every screen. Fixed, layered radial gradients — no image
+     dependency, so it never breaks if external assets fail.
+  --------------------------------------------------------- */
+  .nexus-atmosphere {
+    position: relative;
+    min-height: 100dvh;
+    background:
+      radial-gradient(120% 60% at 50% -10%, rgba(139, 124, 246, 0.22), transparent 60%),
+      radial-gradient(90% 50% at 85% 15%, rgba(255, 62, 113, 0.16), transparent 55%),
+      radial-gradient(100% 60% at 10% 100%, rgba(139, 124, 246, 0.14), transparent 60%),
+      #0a0a11;
+    overflow: hidden;
+  }
+
+  .nexus-atmosphere::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+    background-size: 3px 3px;
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  /* Core glass surface */
+  .glass-surface {
+    @apply bg-glass border border-glass-border backdrop-blur-xl shadow-glass;
+  }
+
+  /* Primary action button */
+  .btn-action {
+    @apply inline-flex items-center justify-center gap-2 rounded-full
+      bg-gradient-to-r from-action to-action-dark
+      px-6 py-3.5 text-sm font-semibold text-white
+      shadow-glow-pink transition-transform duration-200
+      active:scale-[0.97] disabled:opacity-40 disabled:pointer-events-none;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-full
+      glass-surface px-6 py-3.5 text-sm font-medium text-ink
+      transition-transform duration-200 active:scale-[0.97];
+  }
+
+  .input-glass {
+    @apply w-full rounded-2xl glass-surface px-4 py-3.5 text-sm text-ink
+      placeholder:text-ink-faint outline-none
+      focus:border-accent/50 focus:ring-2 focus:ring-accent/20 transition-all;
+  }
+
+  .screen-frame {
+    @apply mx-auto flex min-h-dvh w-full max-w-[480px] flex-col px-6;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* ============================================================
+ * Part 29-33: respect prefers-reduced-motion.
+ *
+ * This is a safety net for every CSS transition/animation in the app
+ * (button active:scale, hover states, the .btn-* transition-transform
+ * utilities, etc). It intentionally does NOT try to neutralize
+ * framer-motion's JS-driven animations — those use inline transforms
+ * updated via requestAnimationFrame, which a CSS rule cannot reach.
+ * Every framer-motion usage in this codebase that plays anything
+ * beyond a simple opacity fade instead calls the `useReducedMotion()`
+ * hook directly and swaps in a zero-duration transition — see
+ * components/ai/DocumentPipeline.tsx, ExplainableInsightCard.tsx,
+ * SmartSearchBar.tsx, and app/admin/classes/[classId]/timetable/page.tsx
+ * for the pattern.
+ * ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

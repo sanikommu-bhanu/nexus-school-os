@@ -1,0 +1,372 @@
+rules_version = '2';
+
+// ============================================================
+// NEXUS — Firestore Security Rules
+//
+// Principles enforced here (not just in the UI):
+//  - Every read/write requires authentication.
+//  - A user can only write their own users/{uid} document, and can
+//    never self-assign a role change after creation via a client write.
+//  - Profile collections (users/students/teachers) are readable by
+//    the user themself or a fellow member of the same school — never
+//    platform-wide, since they carry PII (email, phone, DOB, gender).
+//  - School data is only readable/writable by verified members of
+//    that school (checked via the schools/{id}/members subcollection),
+//    so a teacher from School A can never read School B's data. A
+//    parent becomes a member of their linked child's school at
+//    link time (see services/parent-link-service.ts) — without that,
+//    every school-scoped collection below (attendance, assignments,
+//    timetable, documents, fees, RAG chunks) would be unreadable by
+//    parents entirely.
+//  - Class data is scoped the same way one level deeper, except class
+//    documents themselves (no PII) are publicly readable by any
+//    signed-in user, same as schools — both need to be resolvable by
+//    join code before the reader has any membership at all.
+//  - Parent-child links can only be created by the parent themself,
+//    and only read by the two parties involved. The code-to-child
+//    preview used before a link exists is served from the dedicated,
+//    non-enumerable parentLinkPreviews collection rather than the
+//    sensitive students/users collections directly.
+// ============================================================
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isSchoolMember(schoolId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/schools/$(schoolId)/members/$(request.auth.uid));
+    }
+
+    function isSchoolAdmin(schoolId) {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/schools/$(schoolId)/members/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isClassMember(schoolId, classId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/schools/$(schoolId)/classes/$(classId)/members/$(request.auth.uid));
+    }
+
+    function isClassTeacher(schoolId, classId) {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/schools/$(schoolId)/classes/$(classId)).data.teacherId == request.auth.uid;
+    }
+
+    // ---------------- users ----------------
+    match /users/{userId} {
+      // Self, or a fellow member of the same school. NOT a blanket
+      // isSignedIn() — UserProfile carries email/phone, and a broad
+      // rule here would let any signed-in user on the platform
+      // enumerate every person's contact info across every school.
+      // (Previously this was `allow read: if isSignedIn()`, a
+      // cross-tenant PII leak — fixed as part of the security audit.)
+      allow read: if isSelf(userId) || (resource.data.schoolId is string && isSchoolMember(resource.data.schoolId));
+      allow create: if isSelf(userId) && request.resource.data.id == userId;
+      // Role is immutable after creation from the client — changing a
+      // role must go through a trusted server path, never a client update.
+      allow update: if isSelf(userId) && request.resource.data.role == resource.data.role;
+      allow delete: if false;
+    }
+
+    // ---------------- schools ----------------
+    match /schools/{schoolId} {
+      // Public join-code lookup requires reading the doc; codes are
+      // meant to be shared, so any signed-in user may read school docs.
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.ownerId == request.auth.uid;
+      allow update: if isSchoolAdmin(schoolId);
+      allow delete: if false;
+
+      match /members/{memberId} {
+        allow read: if isSchoolMember(schoolId);
+        // A user may only ever add themself as a member (the join flow);
+        // admins may manage others via a trusted server path if needed later.
+        // CRITICAL: create only checked isSelf(memberId) with no constraint
+        // on the role field being written — any signed-in user could set
+        // their own members/{uid} doc to role:"admin" for ANY schoolId
+        // (schools are public-readable, so schoolId is never secret) and
+        // become a full admin of a school they have no relationship to.
+        // The only legitimate self-serve admin role is createSchool's own
+        // transaction, where the writer is the school's ownerId — every
+        // other path (join by code, teacher registration, parent link)
+        // must never be able to write role:"admin" for themself.
+        allow create: if isSelf(memberId) &&
+          (request.resource.data.role != 'admin' ||
+           get(/databases/$(database)/documents/schools/$(schoolId)).data.ownerId == request.auth.uid);
+        // Same reasoning for update: a non-admin member could otherwise
+        // rewrite their own role field to "admin" at any time after
+        // joining. Self-updates must leave role untouched; only an
+        // existing admin may change someone else's role.
+        allow update: if isSchoolAdmin(schoolId) ||
+          (isSelf(memberId) && request.resource.data.role == resource.data.role);
+        allow delete: if isSchoolAdmin(schoolId);
+      }
+
+      match /classes/{classId} {
+        // Public join-code lookup requires reading class docs before the
+        // reader has any school membership (the primary "Student Join"
+        // flow: enter a class code directly, no separate school-join
+        // step — see app/setup/student/page.tsx's getClassByCode, which
+        // runs a collectionGroup("classes") query with zero prior
+        // relationship to the school). Class docs carry no PII (name,
+        // subject, code, teacherId, studentCount), so this mirrors the
+        // schools/{schoolId} rule above and matches what this file's
+        // own header comment already documented as the intent.
+        allow read: if isSignedIn();
+        allow create: if isSchoolMember(schoolId) && request.resource.data.teacherId == request.auth.uid;
+        allow update: if isClassTeacher(schoolId, classId) || isSchoolAdmin(schoolId);
+        allow delete: if false;
+
+        match /members/{memberId} {
+          allow read: if isSchoolMember(schoolId);
+          allow create: if isSelf(memberId) || isClassTeacher(schoolId, classId);
+          allow update: if isClassTeacher(schoolId, classId);
+          allow delete: if isClassTeacher(schoolId, classId) || isSchoolAdmin(schoolId);
+        }
+      }
+
+      // ---------------- attendance ----------------
+      // One record per student/class/day (id encodes classId_studentId_date).
+      // Writable only by the class's own teacher or a school admin;
+      // readable by any verified school member — client code (and the
+      // app's own querying) is responsible for narrowing what a
+      // student/parent actually surfaces to just their own child.
+      match /attendance/{recordId} {
+        allow read: if isSchoolMember(schoolId);
+        allow create, update: if isSchoolAdmin(schoolId) ||
+          isClassTeacher(schoolId, request.resource.data.classId);
+        allow delete: if false;
+      }
+
+      // ---------------- assignments ----------------
+      match /assignments/{assignmentId} {
+        allow read: if isSchoolMember(schoolId);
+        allow create: if isClassTeacher(schoolId, request.resource.data.classId) || isSchoolAdmin(schoolId);
+        allow update: if isClassTeacher(schoolId, resource.data.classId) || isSchoolAdmin(schoolId);
+        allow delete: if false;
+
+        match /submissions/{submissionId} {
+          allow read: if isSchoolMember(schoolId);
+          // The owning student may update their own submission status;
+          // the class teacher may grade it; the seeding write on
+          // assignment creation happens from the teacher's own request.
+          allow create: if isClassTeacher(schoolId, get(/databases/$(database)/documents/schools/$(schoolId)/assignments/$(assignmentId)).data.classId) || isSchoolAdmin(schoolId);
+          // The student's own update path (markSubmission in
+          // assignment-service.ts) only ever touches status/submittedAt,
+          // but the rule itself didn't stop a raw client write from also
+          // setting `grade` — there's no grading UI yet, but the field
+          // exists on the type, so pin it unchanged for self-updates.
+          allow update: if (isSelf(resource.data.studentId) && request.resource.data.grade == resource.data.grade) ||
+            isClassTeacher(schoolId, resource.data.classId) || isSchoolAdmin(schoolId);
+          allow delete: if false;
+        }
+      }
+
+      // ---------------- timetable ----------------
+      match /timetable/{slotId} {
+        allow read: if isSchoolMember(schoolId);
+        allow create, update, delete: if isSchoolAdmin(schoolId) ||
+          isClassTeacher(schoolId, request.resource.data.classId);
+      }
+
+      // ---------------- documents ----------------
+      match /documents/{documentId} {
+        allow read: if isSchoolMember(schoolId);
+        allow create: if isSchoolMember(schoolId) && request.resource.data.uploadedBy == request.auth.uid;
+        allow update: if isSelf(resource.data.uploadedBy) || isSchoolAdmin(schoolId);
+        allow delete: if isSelf(resource.data.uploadedBy) || isSchoolAdmin(schoolId);
+      }
+
+      // ---------------- AI knowledge base (RAG chunks) ----------------
+      // Same membership-gate + app-narrows-further convention as
+      // documents/attendance above: any school member can read chunks
+      // for their own school (multi-tenancy is enforced here — School A
+      // can never read School B's rows, full stop), and the RAG
+      // retrieval code in lib/ai/rag.ts then filters by `audience`
+      // (school/class/teacher/student/parent) and, for class-scoped
+      // chunks, by the caller's own classIds — mirroring exactly how
+      // announcements are scoped. Only admins or the owning class's
+      // teacher may add chunks, matching the announcement-authoring rule.
+      match /knowledgeChunks/{chunkId} {
+        allow read: if isSchoolMember(schoolId);
+        allow create: if isSchoolAdmin(schoolId) ||
+          (request.resource.data.audience == 'class' &&
+           isClassTeacher(schoolId, request.resource.data.classId));
+        allow update: if false;
+        allow delete: if isSchoolAdmin(schoolId);
+      }
+
+      // ---------------- announcements ----------------
+      // Only admins create school-wide announcements; class-scoped
+      // announcements may also come from that class's teacher.
+      match /announcements/{announcementId} {
+        allow read: if isSchoolMember(schoolId);
+        allow create: if isSchoolAdmin(schoolId) ||
+          (request.resource.data.audience == 'class' &&
+           isClassTeacher(schoolId, request.resource.data.classId));
+        allow update: if false;
+        allow delete: if isSchoolAdmin(schoolId);
+      }
+
+      // ---------------- AI support notes (Part 5/6) ----------------
+      // Written only via the AI actions confirm flow (never silently)
+      // by the student's own teacher or an admin. Never readable by
+      // the student/parent — internal staff notes only.
+      match /supportNotes/{noteId} {
+        allow read: if isSchoolAdmin(schoolId) ||
+          get(/databases/$(database)/documents/schools/$(schoolId)/members/$(request.auth.uid)).data.role == 'teacher';
+        allow create: if request.resource.data.authorId == request.auth.uid &&
+          (isSchoolAdmin(schoolId) ||
+           get(/databases/$(database)/documents/schools/$(schoolId)/members/$(request.auth.uid)).data.role == 'teacher');
+        allow update: if false;
+        allow delete: if isSchoolAdmin(schoolId);
+      }
+
+      // ---------------- AI conversation memory (Part 25) ----------------
+      // Each user's own chat history — never cross-readable, not even by
+      // an admin, since it may reference sensitive per-user context.
+      match /aiConversations/{uid}/messages/{messageId} {
+        allow read: if isSelf(uid);
+        allow create: if isSelf(uid) && request.resource.data.uid == uid;
+        allow update: if false;
+        allow delete: if isSelf(uid);
+      }
+
+      // ---------------- fee management ----------------
+      // Same convention as attendance/documents above: membership
+      // gates the read, the app's own querying narrows what a
+      // student/parent actually surfaces to their own child. Only an
+      // admin defines dues or records that money was collected —
+      // there is no client "mark my fee as paid" path.
+      match /feeStructures/{feeStructureId} {
+        allow read: if isSchoolMember(schoolId);
+        allow create, update: if isSchoolAdmin(schoolId);
+        allow delete: if false;
+      }
+
+      match /feePayments/{paymentId} {
+        allow read: if isSchoolMember(schoolId);
+        allow create, update: if isSchoolAdmin(schoolId);
+        allow delete: if false;
+      }
+
+      // ---------------- notifications ----------------
+      // Written by trusted service functions on behalf of a recipient;
+      // only that recipient can ever read or mark their own as read.
+      match /notifications/{notificationId} {
+        allow read: if isSelf(resource.data.recipientId);
+        allow create: if isSchoolMember(schoolId);
+        allow update: if isSelf(resource.data.recipientId);
+        allow delete: if false;
+      }
+
+      // ---------------- conversations & messages ----------------
+      match /conversations/{conversationId} {
+        allow read: if isSignedIn() && request.auth.uid in resource.data.participantIds;
+        allow create: if isSignedIn() && request.auth.uid in request.resource.data.participantIds;
+        // participantIds is pinned to its create-time value: without this,
+        // a participant's update (meant only to touch unreadFor/updatedAt
+        // via markConversationRead below) could instead rewrite who the
+        // conversation belongs to, contradicting "conversations are never
+        // re-parented" above and letting someone add a third party or
+        // swap out the other participant to hijack the thread.
+        allow update: if isSignedIn() && request.auth.uid in resource.data.participantIds &&
+          request.resource.data.participantIds == resource.data.participantIds;
+        allow delete: if false;
+
+        match /messages/{messageId} {
+          allow read: if isSignedIn() &&
+            request.auth.uid in get(/databases/$(database)/documents/schools/$(schoolId)/conversations/$(conversationId)).data.participantIds;
+          allow create: if isSignedIn() && request.resource.data.senderId == request.auth.uid &&
+            request.auth.uid in get(/databases/$(database)/documents/schools/$(schoolId)/conversations/$(conversationId)).data.participantIds;
+          allow update: if false;
+          allow delete: if false;
+        }
+      }
+    }
+
+    // ---------------- teachers ----------------
+    match /teachers/{userId} {
+      // Self, or a fellow member of the same school — same reasoning
+      // as users/{userId} above (previously isSignedIn(), tightened
+      // as part of the security audit; no legitimate read of another
+      // school's TeacherProfile exists anywhere in this app).
+      allow read: if isSelf(userId) || (resource.data.schoolId is string && isSchoolMember(resource.data.schoolId));
+      allow create: if isSelf(userId);
+      allow update: if isSelf(userId);
+      allow delete: if false;
+    }
+
+    // ---------------- students ----------------
+    match /students/{userId} {
+      // Self, or a fellow member of the same school (teacher/admin
+      // roster views, or a parent once linked — see
+      // services/parent-link-service.ts's linkParentToStudent, which
+      // adds the parent as a school member at link time specifically
+      // so this holds true afterward).
+      //
+      // Previously this was `allow read: if isSignedIn()`, justified
+      // as "the parentLinkCode is the shared secret" — but that let
+      // any signed-in user on the platform read every student's
+      // dateOfBirth/gender/parentLinkCode, and the parentLinkCode
+      // field is itself a credential (whoever reads it can link
+      // themself to that child). Fixed by removing the broad read and
+      // moving the parent-connect code lookup to the dedicated
+      // parentLinkPreviews collection below, which exposes only a
+      // name/school/class preview and cannot be enumerated.
+      allow read: if isSelf(userId) || isSchoolMember(resource.data.schoolId);
+      allow create: if isSelf(userId);
+      // Self only. No service in this app ever writes another user's
+      // student doc (student-service.ts's setDoc is always the
+      // student's own client) — the previous isSchoolMember(...) grant
+      // on update was unused by the app but let ANY fellow school
+      // member (a classmate, or an unrelated parent) overwrite this
+      // student's parentLinkCode (a credential — see comment above),
+      // schoolId, classId, dateOfBirth, or gender. Matches the
+      // teachers/{userId} rule's isSelf-only update just below.
+      allow update: if isSelf(userId);
+      allow delete: if false;
+    }
+
+    // ---------------- parent-link code previews ----------------
+    // Deliberately minimal, non-sensitive (name/school/class only —
+    // no DOB/gender/email/phone) and keyed by the link code itself so
+    // it's looked up by exact document ID, never queried by field.
+    // `allow list: if false` means this collection cannot be
+    // enumerated — knowing the exact code is what authorizes the
+    // read, the same trust model already used for school/class join
+    // codes. Written once by the student's own client when their
+    // profile is created (see services/student-service.ts).
+    match /parentLinkPreviews/{code} {
+      allow get: if isSignedIn();
+      allow list: if false;
+      allow create: if isSelf(request.resource.data.studentId);
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // ---------------- parents ----------------
+    match /parents/{userId} {
+      allow read: if isSelf(userId);
+      allow create: if isSelf(userId);
+      allow update: if isSelf(userId);
+      allow delete: if false;
+    }
+
+    // ---------------- parentStudentLinks ----------------
+    match /parentStudentLinks/{linkId} {
+      allow read: if isSignedIn() &&
+        (resource.data.parentId == request.auth.uid || resource.data.studentId == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.parentId == request.auth.uid;
+      allow update: if false;
+      allow delete: if false;
+    }
+  }
+}

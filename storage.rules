@@ -1,0 +1,71 @@
+rules_version = '2';
+
+// ============================================================
+// NEXUS — Firebase Storage Security Rules
+//
+// This file did not exist before this audit — meaning the Storage
+// bucket had no explicit access control of its own; anyone with the
+// bucket URL and no auth check in front of it could potentially read
+// or write objects, depending on how the bucket's defaults were
+// configured (test-mode buckets default to `allow read, write: if
+// true` for a 30-day window and then close entirely). This mirrors
+// the same school-membership model already enforced in
+// firestore.rules (see that file's header for the full rationale),
+// using firestore.exists()/firestore.get() to check membership
+// without duplicating that state into Storage.
+// ============================================================
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSchoolMember(schoolId) {
+      return isSignedIn() &&
+        firestore.exists(/databases/(default)/documents/schools/$(schoolId)/members/$(request.auth.uid));
+    }
+
+    function isValidDocumentUpload() {
+      // Matches the file types services/document-service.ts and
+      // components/ai/DocumentPipeline.tsx are actually built to
+      // handle (PDF/image/text are AI-readable; docx/xlsx/pptx are
+      // storable but not AI-processed, same as the app's own
+      // SUPPORTED_AI_MIME check for what the pipeline will attempt to
+      // read). 10MB cap is a friendly, generous ceiling for a
+      // free-tier project — comfortably above typical worksheets/
+      // policies while still bounded.
+      return request.resource.size < 10 * 1024 * 1024 &&
+        (request.resource.contentType.matches('application/pdf') ||
+         request.resource.contentType.matches('image/.*') ||
+         request.resource.contentType.matches('text/plain') ||
+         request.resource.contentType.matches('application/vnd[.]openxmlformats-officedocument[.].*') ||
+         request.resource.contentType.matches('application/msword') ||
+         request.resource.contentType.matches('application/vnd[.]ms-excel'));
+    }
+
+    // Documents uploaded via services/document-service.ts, stored at
+    // schools/{schoolId}/documents/{timestamp}_{fileName}.
+    match /schools/{schoolId}/documents/{fileName} {
+      allow read: if isSchoolMember(schoolId);
+      allow write: if isSchoolMember(schoolId) && isValidDocumentUpload();
+      allow delete: if isSchoolMember(schoolId);
+    }
+
+    // School/user avatar or logo uploads, if/when added — scoped the
+    // same way, kept here so a future feature doesn't have to touch
+    // this file's structure, only add a matching Firestore doc check.
+    match /schools/{schoolId}/branding/{fileName} {
+      allow read: if isSignedIn(); // logos are shown on public join screens
+      allow write: if isSchoolMember(schoolId) &&
+        request.resource.size < 3 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*');
+      allow delete: if isSchoolMember(schoolId);
+    }
+
+    // Deny everything else by default — no implicit bucket-wide access.
+    match /{allOtherPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
