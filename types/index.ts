@@ -171,6 +171,13 @@ export interface DocumentMeta extends Timestamped {
   uploadedBy: string;
   documentType: DocumentType;
   fileName: string;
+  /**
+   * Public HTTPS URL of the stored file, returned by Cloudinary's
+   * unsigned upload (`secure_url` — see lib/cloudinary.ts). Directly
+   * usable as an `href`/`src`; not a Firebase Storage `gs://` path or
+   * a token-scoped firebasestorage.googleapis.com download URL, which
+   * is what this held before the move off Firebase Storage.
+   */
   fileURL: string;
   fileSize: number;
   mimeType: string;

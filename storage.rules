@@ -1,6 +1,26 @@
 rules_version = '2';
 
 // ============================================================
+// ⚠️ NO LONGER IN USE.
+//
+// File uploads moved from Firebase Storage to Cloudinary (Firebase
+// Storage requires the paid Blaze plan; Cloudinary's free tier does
+// not). Nothing in the app writes to or reads from the Storage
+// bucket anymore — see lib/cloudinary.ts and
+// services/document-service.ts. Access control for uploads now lives
+// in the Cloudinary dashboard (unsigned upload preset restrictions),
+// not here.
+//
+// This file is kept only as a safety net while the migration is
+// verified: it stays deployed so the bucket is locked down rather
+// than left on defaults. Once Cloudinary uploads are confirmed
+// working in production, delete this file and remove the "storage"
+// entry from firebase.json.
+//
+// Everything below is the original (now dormant) ruleset.
+// ============================================================
+
+// ============================================================
 // NEXUS — Firebase Storage Security Rules
 //
 // This file did not exist before this audit — meaning the Storage

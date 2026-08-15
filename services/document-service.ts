@@ -1,5 +1,5 @@
 // ============================================================
-// Document service — Firebase Storage for bytes,
+// Document service — Cloudinary for bytes,
 // schools/{schoolId}/documents/{id} for metadata. Part 15/16.
 //
 // Document Intelligence Foundation: aiStatus is set to
@@ -7,9 +7,9 @@
 // configured — see isAiConfigured(). The pipeline shape is real;
 // what's optional is only whether the extraction step actually runs.
 // ============================================================
-import { db, storage } from "@/lib/firebase";
+import { db } from "@/lib/firebase";
 import { doc, getDoc, setDoc, collection, query, where, getDocs, serverTimestamp, orderBy, updateDoc } from "firebase/firestore";
-import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { uploadToCloudinary } from "@/lib/cloudinary";
 import type { DocumentMeta, DocumentType } from "@/types";
 
 export async function isAiConfigured(): Promise<boolean> {
@@ -46,7 +46,7 @@ export async function getDocumentById(schoolId: string, documentId: string): Pro
 // ============================================================
 // Document Intelligence pipeline (Part 12-14).
 //
-//   UPLOADING   -> bytes to Firebase Storage, metadata row created
+//   UPLOADING   -> bytes to Cloudinary, metadata row created
 //   READING     -> file bytes sent to Gemini (multimodal) for PDFs/
 //                  images/plain text; skipped honestly for other
 //                  types or when AI isn't configured
@@ -79,10 +79,11 @@ export interface DocumentProcessResult {
 
 const SUPPORTED_AI_MIME = (mime: string) => mime === "application/pdf" || mime.startsWith("image/") || mime === "text/plain";
 
-// Kept in sync with storage.rules' isValidDocumentUpload() — this is a
-// friendly, fast client-side check (Part 15/34/36: "verify friendly
-// error", never a raw Firebase error dialog); the Storage rule is the
-// real enforcement boundary and would reject the same file either way.
+// Friendly, fast client-side check (Part 15/34/36: "verify friendly
+// error", never a raw upload error dialog). Since uploads moved to
+// Cloudinary, storage.rules no longer enforces this — the backstop is
+// now the Cloudinary upload preset's own size/format restrictions,
+// configured in the dashboard.
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const ALLOWED_UPLOAD_MIME =
   /^(application\/pdf|image\/.*|text\/plain|application\/vnd\.openxmlformats-officedocument\..*|application\/msword|application\/vnd\.ms-excel)$/;
@@ -126,16 +127,13 @@ export async function uploadAndProcessDocument(
   meta: { documentType: DocumentType; classId?: string; ownerId: string },
   onStep?: (event: PipelineStepEvent) => void
 ): Promise<DocumentProcessResult> {
-  if (!db || !storage) throw new Error("Firebase isn't configured.");
+  if (!db) throw new Error("Firebase isn't configured.");
   validateUploadFile(file);
   const emit = (event: PipelineStepEvent) => onStep?.(event);
 
   // ---- UPLOADING ----
   emit({ step: "uploading", status: "active" });
-  const path = `schools/${schoolId}/documents/${Date.now()}_${file.name}`;
-  const sRef = storageRef(storage, path);
-  await uploadBytes(sRef, file);
-  const fileURL = await getDownloadURL(sRef);
+  const { url: fileURL } = await uploadToCloudinary(file, `schools/${schoolId}/documents`);
   emit({ step: "uploading", status: "done" });
 
   const ref = doc(collection(db, "schools", schoolId, "documents"));
@@ -272,13 +270,10 @@ export async function uploadDocument(
   meta: { documentType: DocumentType; classId?: string; ownerId: string },
   knowledgeText?: string
 ): Promise<DocumentMeta> {
-  if (!db || !storage) throw new Error("Firebase isn't configured.");
+  if (!db) throw new Error("Firebase isn't configured.");
   validateUploadFile(file);
 
-  const path = `schools/${schoolId}/documents/${Date.now()}_${file.name}`;
-  const sRef = storageRef(storage, path);
-  await uploadBytes(sRef, file);
-  const fileURL = await getDownloadURL(sRef);
+  const { url: fileURL } = await uploadToCloudinary(file, `schools/${schoolId}/documents`);
 
   const ref = doc(collection(db, "schools", schoolId, "documents"));
   let aiStatus: DocumentMeta["aiStatus"] = (await isAiConfigured()) ? "processing" : "unavailable";
