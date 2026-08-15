@@ -541,7 +541,7 @@ await it("recipient CAN read and mark their own notification read", async () => 
   );
 });
 
-await it("a member CANNOT forge a notification addressed to someone else", async () => {
+await it("a student CANNOT forge a notification addressed to someone else", async () => {
   await assertFails(
     addDoc(collection(asStudent, "schools", SCHOOL, "notifications"), {
       schoolId: SCHOOL,
@@ -554,12 +554,80 @@ await it("a member CANNOT forge a notification addressed to someone else", async
   );
 });
 
+await it("staff (teacher) CAN notify a student — the attendance/assignment path", async () => {
+  await assertSucceeds(
+    addDoc(collection(asTeacher, "schools", SCHOOL, "notifications"), {
+      schoolId: SCHOOL,
+      recipientId: STUDENT,
+      type: "attendance",
+      title: "Marked absent today",
+      message: "Your attendance for 2026-01-03 was recorded as absent.",
+      read: false,
+    })
+  );
+});
+
+await it("a notification cannot be written into a DIFFERENT school's collection", async () => {
+  await assertFails(
+    addDoc(collection(asTeacher, "schools", SCHOOL, "notifications"), {
+      schoolId: SCHOOL_B,
+      recipientId: STUDENT,
+      type: "system",
+      title: "mismatched schoolId",
+      message: "…",
+      read: false,
+    })
+  );
+});
+
+await it("recipient CANNOT rewrite the CONTENT of a notification they received", async () => {
+  await assertFails(
+    updateDoc(doc(asTeacher, "schools", SCHOOL, "notifications", "n1"), {
+      title: "Rewritten by recipient",
+      message: "tampered",
+    })
+  );
+});
+
 // ============================================================
 group("timetable — write authority");
 // ============================================================
 
 await it("the class's own teacher CAN delete their timetable slot", async () => {
   await assertSucceeds(deleteDoc(doc(asTeacher, "schools", SCHOOL, "timetable", "slot_1")));
+});
+
+await it("a DIFFERENT teacher CANNOT delete a slot for a class they don't own", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), "schools", SCHOOL, "timetable", "slot_2"), {
+      id: "slot_2",
+      schoolId: SCHOOL,
+      classId: CLASS,
+      teacherId: TEACHER,
+      subject: "Mathematics",
+      day: "TU",
+      period: 3,
+      startTime: "11:00",
+      endTime: "11:45",
+    });
+  });
+  await assertFails(deleteDoc(doc(asTeacher2, "schools", SCHOOL, "timetable", "slot_2")));
+});
+
+await it("a teacher CANNOT move a slot into a class they don't teach", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), "schools", SCHOOL, "classes", "class_2"), {
+      id: "class_2",
+      schoolId: SCHOOL,
+      teacherId: TEACHER2,
+      name: "9-B",
+      code: "NX-9B-SCI-11",
+      studentCount: 0,
+    });
+  });
+  await assertFails(
+    updateDoc(doc(asTeacher, "schools", SCHOOL, "timetable", "slot_2"), { classId: "class_2" })
+  );
 });
 
 await it("a student CANNOT create a timetable slot", async () => {

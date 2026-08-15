@@ -56,27 +56,29 @@ export async function getTimetableForTeacher(schoolId: string, teacherId: string
 }
 
 /**
- * Foundation-level conflict detection (Part 14): flags the three
- * obvious clashes — teacher double-booked, class double-booked,
- * room double-booked — at the same day+period. Deliberately simple
- * (no optimization solver) so Phase 4 can build on a clean base.
+ * Conflict detection (Part 14): flags the three obvious clashes —
+ * teacher double-booked, class double-booked, room double-booked.
+ *
+ * Fetches the whole day (not day+period) because overlapping slots do
+ * not have to share a period number: 09:00-10:00 and 09:30-10:15 are
+ * different periods but the same teacher cannot teach both. The
+ * comparison itself lives in lib/timetable-conflicts.ts so it is unit
+ * testable without Firestore. A single day's slots is a small read.
  */
 export async function detectConflicts(
   schoolId: string,
-  candidate: Pick<TimetableSlot, "classId" | "teacherId" | "day" | "period" | "room">
+  candidate: Pick<TimetableSlot, "classId" | "teacherId" | "day" | "period" | "room" | "startTime" | "endTime">,
+  excludeSlotId?: string
 ): Promise<string[]> {
   if (!db) return [];
   const daySlots = await getDocs(
-    query(collection(db, "schools", schoolId, "timetable"), where("day", "==", candidate.day), where("period", "==", candidate.period))
+    query(collection(db, "schools", schoolId, "timetable"), where("day", "==", candidate.day))
   );
-  const conflicts: string[] = [];
-  for (const d of daySlots.docs) {
-    const s = d.data() as TimetableSlot;
-    if (s.teacherId === candidate.teacherId) conflicts.push(`Teacher already scheduled for ${s.subject} at this period.`);
-    if (s.classId === candidate.classId) conflicts.push(`Class already has ${s.subject} scheduled at this period.`);
-    if (candidate.room && s.room && s.room === candidate.room) conflicts.push(`Room ${s.room} is already booked at this period.`);
-  }
-  return conflicts;
+  return findConflicts(
+    candidate as SlotLike,
+    daySlots.docs.map((d) => d.data() as TimetableSlot),
+    excludeSlotId
+  );
 }
 
 export function groupByDay(slots: TimetableSlot[]): Record<Weekday, TimetableSlot[]> {

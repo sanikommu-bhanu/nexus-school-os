@@ -45,8 +45,17 @@ service cloud.firestore {
     }
 
     function isSchoolAdmin(schoolId) {
-      return isSignedIn() &&
+      return isSchoolMember(schoolId) &&
         get(/databases/$(database)/documents/schools/$(schoolId)/members/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // Staff = admin or teacher. Used where an action is legitimately
+    // performed *on behalf of* another user (notifications), so it
+    // cannot be gated on "recipient == self", but must still not be
+    // available to students/parents.
+    function isSchoolStaff(schoolId) {
+      return isSchoolMember(schoolId) &&
+        get(/databases/$(database)/documents/schools/$(schoolId)/members/$(request.auth.uid)).data.role in ['admin', 'teacher'];
     }
 
     function isClassMember(schoolId, classId) {
@@ -163,7 +172,16 @@ service cloud.firestore {
           // but the rule itself didn't stop a raw client write from also
           // setting `grade` — there's no grading UI yet, but the field
           // exists on the type, so pin it unchanged for self-updates.
-          allow update: if (isSelf(resource.data.studentId) && request.resource.data.grade == resource.data.grade) ||
+          //
+          // `grade` is OPTIONAL on AssignmentSubmission and absent on
+          // every seeded "pending" row, so this must be read with
+          // .get(field, default): a bare `resource.data.grade` raises
+          // "Property grade is undefined on object", which surfaces as
+          // an evaluation error and DENIES the write. That broke the
+          // ordinary "student marks their work submitted" path entirely
+          // — caught by tests/rules.test.mjs against the emulator.
+          allow update: if (isSelf(resource.data.studentId) &&
+              request.resource.data.get('grade', null) == resource.data.get('grade', null)) ||
             isClassTeacher(schoolId, resource.data.classId) || isSchoolAdmin(schoolId);
           allow delete: if false;
         }
@@ -172,8 +190,21 @@ service cloud.firestore {
       // ---------------- timetable ----------------
       match /timetable/{slotId} {
         allow read: if isSchoolMember(schoolId);
-        allow create, update, delete: if isSchoolAdmin(schoolId) ||
+        allow create: if isSchoolAdmin(schoolId) ||
           isClassTeacher(schoolId, request.resource.data.classId);
+        // Teacher must own BOTH the current and the proposed class, so
+        // a slot can't be moved into a class the editor doesn't teach.
+        allow update: if isSchoolAdmin(schoolId) ||
+          (isClassTeacher(schoolId, resource.data.classId) &&
+           isClassTeacher(schoolId, request.resource.data.classId));
+        // DELETE MUST USE resource, NOT request.resource: on a delete
+        // `request.resource` is null, so the previous combined
+        // `create, update, delete` rule raised "Null value error" and
+        // denied EVERY delete by a class teacher — only admins could
+        // remove a slot, silently, despite the teacher timetable UI
+        // offering the action. Caught by tests/rules.test.mjs.
+        allow delete: if isSchoolAdmin(schoolId) ||
+          isClassTeacher(schoolId, resource.data.classId);
       }
 
       // ---------------- documents ----------------
@@ -258,12 +289,34 @@ service cloud.firestore {
       }
 
       // ---------------- notifications ----------------
-      // Written by trusted service functions on behalf of a recipient;
-      // only that recipient can ever read or mark their own as read.
+      // Written by service functions on behalf of a recipient; only
+      // that recipient can ever read or mark their own as read.
+      //
+      // `allow create: if isSchoolMember(schoolId)` was a spoofing hole
+      // confirmed against the emulator: ANY member — a student, a
+      // parent — could write a notification addressed to anyone else in
+      // the school with an arbitrary title/message, i.e. an in-app
+      // phishing primitive ("Fee overdue — pay here") wearing the
+      // app's own trusted notification UI.
+      //
+      // Every legitimate producer is either staff acting on someone
+      // else (attendance, assignments, announcements, documents) or a
+      // user notifying themself, so that is exactly what is allowed.
+      // Note messaging: sendMessage() also pings the recipient, and for
+      // a student/parent sender that create is now denied — it is
+      // already wrapped in .catch(() => {}) and the unread badge is
+      // driven by conversations.unreadFor (see MessagesBell), so the
+      // thread still lights up correctly.
       match /notifications/{notificationId} {
         allow read: if isSelf(resource.data.recipientId);
-        allow create: if isSchoolMember(schoolId);
-        allow update: if isSelf(resource.data.recipientId);
+        allow create: if request.resource.data.schoolId == schoolId &&
+          (isSchoolStaff(schoolId) || isSelf(request.resource.data.recipientId));
+        // Recipient may only flip read state — not rewrite the content
+        // of a notification they received.
+        allow update: if isSelf(resource.data.recipientId) &&
+          request.resource.data.title == resource.data.title &&
+          request.resource.data.message == resource.data.message &&
+          request.resource.data.recipientId == resource.data.recipientId;
         allow delete: if false;
       }
 
