@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { AuthGuard } from "@/components/AuthGuard";
 import { AppShell } from "@/components/shell/AppShell";
@@ -18,7 +18,7 @@ import { attachClassToTeacher } from "@/services/teacher-service";
 import type { ClassEntity, TeacherProfile, UserProfile } from "@/types";
 import { Layers, Plus } from "lucide-react";
 
-export default function AdminClassesPage() {
+function AdminClassesScreen() {
   const { profile } = useAuthUser();
   const params = useSearchParams();
   const router = useRouter();
@@ -137,5 +137,15 @@ export default function AdminClassesPage() {
         )}
       </AppShell>
     </AuthGuard>
+  );
+}
+
+// Suspense boundary required by useSearchParams() — see app/auth/page.tsx.
+// Without it `next build` fails this route outright.
+export default function AdminClassesPage() {
+  return (
+    <Suspense fallback={<LoadingState />}>
+      <AdminClassesScreen />
+    </Suspense>
   );
 }

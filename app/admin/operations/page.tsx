@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AuthGuard } from "@/components/AuthGuard";
 import { AppShell } from "@/components/shell/AppShell";
@@ -24,7 +24,7 @@ import { FileText, Megaphone, Bell, CheckCheck } from "lucide-react";
 const TABS = ["attendance", "documents", "announce", "alerts"] as const;
 type Tab = (typeof TABS)[number];
 
-export default function AdminOperationsPage() {
+function AdminOperationsScreen() {
   const { profile } = useAuthUser();
   const params = useSearchParams();
   const initialTab = (params.get("tab") as Tab) ?? "attendance";
@@ -215,5 +215,15 @@ export default function AdminOperationsPage() {
         )}
       </AppShell>
     </AuthGuard>
+  );
+}
+
+// Suspense boundary required by useSearchParams() — see app/auth/page.tsx.
+// Without it `next build` fails this route outright.
+export default function AdminOperationsPage() {
+  return (
+    <Suspense fallback={<LoadingState />}>
+      <AdminOperationsScreen />
+    </Suspense>
   );
 }

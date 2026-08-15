@@ -3,9 +3,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ShieldCheck, BookOpen, GraduationCap, Heart, Check } from "lucide-react";
+import { ShieldCheck, BookOpen, GraduationCap, Heart, Check, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
+import { useAuthUser } from "@/hooks/useAuthUser";
+import { ensureUserProfile } from "@/services/user-service";
 import type { Role } from "@/types";
 
 const ROLES: { role: Role; label: string; description: string; icon: typeof ShieldCheck }[] = [
@@ -17,11 +19,49 @@ const ROLES: { role: Role; label: string; description: string; icon: typeof Shie
 
 export default function RoleSelectionPage() {
   const [selected, setSelected] = useState<Role | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const { user, profile, loading } = useAuthUser();
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     if (!selected) return;
-    router.push(`/auth?role=${selected}`);
+
+    // Not signed in yet — the normal path: pick a role, then authenticate.
+    if (!user) {
+      router.push(`/auth?role=${selected}`);
+      return;
+    }
+
+    // Signed in already. If a profile exists, honour its role (role is
+    // immutable from the client per firestore.rules) and just resume.
+    if (profile) {
+      router.replace(profile.onboardingComplete ? `/${profile.role}` : `/setup/${profile.role}`);
+      return;
+    }
+
+    // Signed in with no profile doc — this is where every guard sends a
+    // half-created account. Write the profile here so the loop ends,
+    // instead of pushing back to /auth for a sign-in they've already done.
+    setSubmitting(true);
+    setError(null);
+    try {
+      const created = await ensureUserProfile(user.uid, {
+        fullName: user.displayName ?? "",
+        email: user.email,
+        photoURL: user.photoURL ?? undefined,
+        role: selected,
+      });
+      router.replace(`/setup/${created.role}`);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `Couldn't save your profile: ${err.message}`
+          : "Couldn't save your profile. Please try again."
+      );
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -73,7 +113,13 @@ export default function RoleSelectionPage() {
         </div>
 
         <div className="pb-10 pt-6">
-          <Button onClick={handleContinue} disabled={!selected}>
+          {error && (
+            <div className="mb-3 flex items-start gap-2 rounded-2xl border border-danger/30 bg-danger/10 p-3.5 text-sm text-danger">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+          <Button onClick={handleContinue} disabled={!selected || loading} loading={submitting}>
             Continue
           </Button>
         </div>

@@ -20,5 +20,10 @@
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  // tests/ runs on Node's native type stripping (`node --experimental-strip-types`),
+  // which resolves imports literally and therefore requires the ".ts" extension —
+  // exactly what this config's bundler resolution rejects. The test files are not
+  // part of the Next build, so they're excluded here rather than loosening
+  // allowImportingTsExtensions for the whole app.
+  "exclude": ["node_modules", "tests"]
 }

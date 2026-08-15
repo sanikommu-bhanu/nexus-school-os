@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, Check, X, AlertCircle, CheckCircle2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { LoadingState } from "@/components/ui/States";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { auth, isFirebaseConfigured } from "@/lib/firebase";
@@ -11,7 +12,7 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
 } from "firebase/auth";
-import { createUserProfile, getCurrentUserProfile } from "@/services/user-service";
+import { ensureUserProfile, getCurrentUserProfile } from "@/services/user-service";
 import type { Role } from "@/types";
 
 type Mode = "login" | "signup";
@@ -34,15 +35,30 @@ function friendlyAuthError(code: string): string {
       return "Too many attempts. Please wait a moment and try again.";
     case "auth/network-request-failed":
       return "Network unavailable. Check your connection and try again.";
+    case "auth/operation-not-allowed":
+      // The provider is switched off in the Firebase console. Worth naming
+      // exactly, because the generic message sends people hunting through
+      // their own code for a bug that is really one console toggle.
+      return "Email/password sign-in isn't enabled for this Firebase project. Enable it under Authentication → Sign-in method.";
+    case "auth/invalid-api-key":
+    case "auth/api-key-not-valid.-please-pass-a-valid-api-key.":
+      return "The Firebase API key in .env.local isn't valid for this project.";
+    case "auth/weak-password":
+      return "That password is too weak. Use at least 8 characters with a number and a capital letter.";
     default:
       return "Something went wrong. Please try again.";
   }
 }
 
-export default function EmailAuthPage() {
+function EmailAuthScreen() {
   const router = useRouter();
   const params = useSearchParams();
-  const role = (params.get("role") as Role) || "student";
+  // Whether the caller actually chose a role (came via /role) as opposed
+  // to landing here directly. On login-with-no-profile we only trust an
+  // explicit choice; otherwise we send them to /role to pick one, rather
+  // than silently filing them as a student.
+  const roleParam = params.get("role") as Role | null;
+  const role: Role = roleParam ?? "student";
   const [mode, setMode] = useState<Mode>((params.get("mode") as Mode) || "login");
 
   const [fullName, setFullName] = useState("");
@@ -86,21 +102,46 @@ export default function EmailAuthPage() {
     try {
       if (mode === "signup") {
         const cred = await createUserWithEmailAndPassword(auth, email, password);
-        await createUserProfile(cred.user.uid, { fullName, email, role, photoURL: undefined });
+        // ensureUserProfile, not createUserProfile: the auth account may
+        // already exist from an earlier attempt whose profile write failed.
+        const profile = await ensureUserProfile(cred.user.uid, {
+          fullName,
+          email,
+          role,
+        });
         setStatus("success");
-        setTimeout(() => router.replace(`/setup/${role}`), 900);
+        setTimeout(() => router.replace(`/setup/${profile.role}`), 900);
       } else {
         const cred = await signInWithEmailAndPassword(auth, email, password);
         const profile = await getCurrentUserProfile(cred.user.uid);
+
+        if (!profile) {
+          // Signed in, but no users/{uid} doc. Send them through role
+          // selection, which writes the profile — never to /setup, whose
+          // guard would bounce straight back to /role in a loop.
+          setStatus("success");
+          setTimeout(() => router.replace(roleParam ? `/role?role=${roleParam}` : "/role"), 700);
+          return;
+        }
+
         setStatus("success");
-        setTimeout(() => {
-          if (!profile) return router.replace(`/setup/${role}`);
-          router.replace(profile.onboardingComplete ? `/${profile.role}` : `/setup/${profile.role}`);
-        }, 700);
+        setTimeout(
+          () => router.replace(profile.onboardingComplete ? `/${profile.role}` : `/setup/${profile.role}`),
+          700
+        );
       }
     } catch (err: any) {
       setStatus("error");
-      setErrorMessage(friendlyAuthError(err?.code ?? ""));
+      // A Firestore failure after a successful auth call has no auth/*
+      // code — surfacing its real message beats "Something went wrong",
+      // which would point the user at their password.
+      setErrorMessage(
+        typeof err?.code === "string" && err.code.startsWith("auth/")
+          ? friendlyAuthError(err.code)
+          : err?.message
+            ? `Signed in, but your profile couldn't be saved: ${err.message}`
+            : friendlyAuthError("")
+      );
     }
   };
 
@@ -225,5 +266,21 @@ export default function EmailAuthPage() {
         </form>
       </div>
     </main>
+  );
+}
+
+// Suspense boundary required by useSearchParams() — see app/auth/page.tsx.
+// Without it `next build` fails this route outright.
+export default function EmailAuthPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="nexus-atmosphere flex min-h-dvh items-center justify-center">
+          <LoadingState message="Preparing sign-in…" />
+        </main>
+      }
+    >
+      <EmailAuthScreen />
+    </Suspense>
   );
 }

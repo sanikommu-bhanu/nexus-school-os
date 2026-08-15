@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { Mail, Loader2, AlertCircle } from "lucide-react";
-import { Button } from "@/components/ui/Button";
+import { LoadingState } from "@/components/ui/States";
 import { auth, googleProvider, isFirebaseConfigured } from "@/lib/firebase";
 import { signInWithPopup } from "firebase/auth";
-import { createUserProfile, getCurrentUserProfile } from "@/services/user-service";
+import { ensureUserProfile } from "@/services/user-service";
 import type { Role } from "@/types";
 
 function GoogleGlyph() {
@@ -22,7 +22,7 @@ function GoogleGlyph() {
   );
 }
 
-export default function AuthPage() {
+function AuthScreen() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const role = (searchParams.get("role") as Role) || "student";
@@ -41,27 +41,38 @@ export default function AuthPage() {
     setGoogleLoading(true);
     try {
       const result = await signInWithPopup(auth, googleProvider);
-      const existing = await getCurrentUserProfile(result.user.uid);
 
-      if (existing) {
-        router.replace(existing.onboardingComplete ? `/${existing.role}` : `/setup/${existing.role}`);
-        return;
-      }
-
-      await createUserProfile(result.user.uid, {
+      // ensureUserProfile covers both branches: returns the existing
+      // profile untouched, or writes one for a first-time Google user.
+      const profile = await ensureUserProfile(result.user.uid, {
         fullName: result.user.displayName ?? "",
         email: result.user.email,
         photoURL: result.user.photoURL ?? undefined,
         role,
       });
-      router.replace(`/setup/${role}`);
+
+      router.replace(profile.onboardingComplete ? `/${profile.role}` : `/setup/${profile.role}`);
     } catch (err: any) {
-      if (err?.code === "auth/popup-closed-by-user") {
+      const code = typeof err?.code === "string" ? err.code : "";
+      if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
         setError("Sign-in was cancelled.");
-      } else if (err?.code === "auth/network-request-failed") {
+      } else if (code === "auth/popup-blocked") {
+        setError("Your browser blocked the sign-in popup. Allow popups for this site and try again.");
+      } else if (code === "auth/network-request-failed") {
         setError("Network unavailable. Check your connection and try again.");
-      } else {
+      } else if (code === "auth/operation-not-allowed") {
+        setError(
+          "Google sign-in isn't enabled for this Firebase project. Enable it under Authentication → Sign-in method."
+        );
+      } else if (code === "auth/unauthorized-domain") {
+        setError(
+          `${window.location.hostname} isn't an authorized domain for this Firebase project. Add it under Authentication → Settings → Authorized domains.`
+        );
+      } else if (code.startsWith("auth/")) {
         setError("We couldn't sign you in. Please try again.");
+      } else {
+        // Non-auth failure — almost always the Firestore profile write.
+        setError(`Signed in, but your profile couldn't be saved: ${err?.message ?? "unknown error"}`);
       }
     } finally {
       setGoogleLoading(false);
@@ -128,5 +139,25 @@ export default function AuthPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+// useSearchParams() opts a route out of static prerendering, and Next
+// requires the opt-out to be contained by a Suspense boundary — without
+// one, `next build` fails the whole /auth route ("should be wrapped in a
+// suspense boundary"), so the sign-in screen could not ship to production
+// at all. The boundary is here at the page level rather than around the
+// hook so the fallback covers the entire screen while params resolve.
+export default function AuthPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="nexus-atmosphere flex min-h-dvh items-center justify-center">
+          <LoadingState message="Preparing sign-in…" />
+        </main>
+      }
+    >
+      <AuthScreen />
+    </Suspense>
   );
 }

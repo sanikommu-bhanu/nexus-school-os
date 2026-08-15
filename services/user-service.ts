@@ -36,24 +36,61 @@ export async function getCurrentUserProfile(uid: string): Promise<UserProfile | 
   return snap.exists() ? (snap.data() as UserProfile) : null;
 }
 
+/**
+ * Firestore's client SDK throws on an explicit `undefined` field value
+ * ("Unsupported field value: undefined") rather than skipping the field.
+ * Optional profile fields — photoURL, phone, schoolId — are naturally
+ * absent for most users, and callers pass them through as `undefined`
+ * (e.g. a Google account with no picture, or email signup which has no
+ * photo at all). Dropping the key is the only correct thing to do: the
+ * field is optional in UserProfile, so "absent" is a valid state.
+ *
+ * This ran as a real bug: signup created the Firebase Auth account, then
+ * the profile write threw on `photoURL: undefined`, so the user ended up
+ * authenticated with no users/{uid} doc — which every guard reads as
+ * "not onboarded" and bounces back to /role forever.
+ */
+function stripUndefined<T extends Record<string, unknown>>(data: T): Partial<T> {
+  return Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)) as Partial<T>;
+}
+
 export async function createUserProfile(
   uid: string,
   data: Pick<UserProfile, "fullName" | "email" | "role" | "photoURL">
 ): Promise<void> {
-  if (!db) return;
+  if (!db) throw new Error("Firebase isn't configured — add your project keys to .env.local.");
   await setDoc(doc(db, "users", uid), {
     id: uid,
-    ...data,
+    ...stripUndefined(data),
     onboardingComplete: false,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
 }
 
+/**
+ * Creates users/{uid} only when it doesn't already exist, and returns the
+ * profile either way. This is the self-heal path for an account that was
+ * authenticated but never got a profile doc written; callers can use it
+ * without first checking, and without clobbering an existing profile
+ * (which would reset onboardingComplete and drop schoolId).
+ */
+export async function ensureUserProfile(
+  uid: string,
+  data: Pick<UserProfile, "fullName" | "email" | "role" | "photoURL">
+): Promise<UserProfile> {
+  const existing = await getCurrentUserProfile(uid);
+  if (existing) return existing;
+  await createUserProfile(uid, data);
+  const created = await getCurrentUserProfile(uid);
+  if (!created) throw new Error("Profile was created but couldn't be read back.");
+  return created;
+}
+
 export async function updateUserProfile(uid: string, data: Partial<UserProfile>): Promise<void> {
-  if (!db) return;
+  if (!db) throw new Error("Firebase isn't configured — add your project keys to .env.local.");
   await updateDoc(doc(db, "users", uid), {
-    ...data,
+    ...stripUndefined(data),
     updatedAt: serverTimestamp(),
   });
 }

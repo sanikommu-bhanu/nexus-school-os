@@ -86,11 +86,16 @@ export default function AdminTimetablePage() {
     setCheckError(null);
     setConflicts(null);
     try {
+      // startTime/endTime are required by detectConflicts: overlap is
+      // decided on the clock, not the period number, so the preview has
+      // to pass the same times the slot would actually be created with.
       const found = await detectConflicts(profile.schoolId, {
         classId,
         teacherId: draft.teacherId,
         day: draft.day,
         period: draft.period,
+        startTime: draft.startTime,
+        endTime: draft.endTime,
         ...(draft.room.trim() ? { room: draft.room.trim() } : {}),
       });
       setConflicts(found);
@@ -195,8 +200,12 @@ export default function AdminTimetablePage() {
                     <div className="grid grid-cols-2 gap-2">
                       <LabeledInput label="Period" type="number" min={1} value={draft.period} onChange={(v) => { setDraft((s) => ({ ...s, period: Number(v) || 1 })); setConflicts(null); }} />
                       <LabeledInput label="Room (optional)" value={draft.room} onChange={(v) => { setDraft((s) => ({ ...s, room: v })); setConflicts(null); }} />
-                      <LabeledInput label="Start time" type="time" value={draft.startTime} onChange={(v) => setDraft((s) => ({ ...s, startTime: v }))} />
-                      <LabeledInput label="End time" type="time" value={draft.endTime} onChange={(v) => setDraft((s) => ({ ...s, endTime: v }))} />
+                      {/* Times invalidate the conflict result like every other
+                          field does — overlap is computed from them, so keeping
+                          a stale "no conflicts" here would let an admin apply a
+                          clashing slot that was checked at a different time. */}
+                      <LabeledInput label="Start time" type="time" value={draft.startTime} onChange={(v) => { setDraft((s) => ({ ...s, startTime: v })); setConflicts(null); }} />
+                      <LabeledInput label="End time" type="time" value={draft.endTime} onChange={(v) => { setDraft((s) => ({ ...s, endTime: v })); setConflicts(null); }} />
                     </div>
                     <LabeledInput label="Subject" value={draft.subject} onChange={(v) => setDraft((s) => ({ ...s, subject: v }))} />
 

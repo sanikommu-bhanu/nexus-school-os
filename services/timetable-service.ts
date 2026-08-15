@@ -6,6 +6,7 @@
 // ============================================================
 import { db } from "@/lib/firebase";
 import { doc, setDoc, collection, query, where, getDocs, serverTimestamp, deleteDoc } from "firebase/firestore";
+import { findConflicts, type SlotLike } from "@/lib/timetable-conflicts";
 import type { TimetableSlot, Weekday } from "@/types";
 
 export async function createTimetableSlot(
