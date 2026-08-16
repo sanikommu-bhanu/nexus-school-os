@@ -16,11 +16,20 @@ function SchoolSuccessContent() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!schoolId) return;
-    getSchoolById(schoolId).then((s) => {
-      setSchool(s);
+    // Same two hangs as the teacher class-share screen: arriving with no
+    // schoolId param never cleared `loading`, and a rejected read had no
+    // catch — either way the admin sat on "Setting up your school…"
+    // forever. The school is already created by the time this screen
+    // renders, so neither case should trap them: fall through to the
+    // success screen, which degrades to no QR block without the doc.
+    if (!schoolId) {
       setLoading(false);
-    });
+      return;
+    }
+    getSchoolById(schoolId)
+      .then(setSchool)
+      .catch(() => setSchool(null))
+      .finally(() => setLoading(false));
   }, [schoolId]);
 
   if (loading) {

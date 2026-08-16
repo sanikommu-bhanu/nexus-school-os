@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/Input";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { ListRow } from "@/components/ui/ListRow";
-import { LoadingState, EmptyState } from "@/components/ui/States";
+import { LoadingState, EmptyState, ErrorState } from "@/components/ui/States";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { getStudentsForSchool } from "@/services/student-service";
 import { getClassesForSchool } from "@/services/class-service";
@@ -22,6 +22,7 @@ export default function AdminStudentsPage() {
   const [users, setUsers] = useState<Map<string, UserProfile>>(new Map());
   const [classes, setClasses] = useState<Map<string, ClassEntity>>(new Map());
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [classFilter, setClassFilter] = useState("");
 
@@ -34,7 +35,13 @@ export default function AdminStudentsPage() {
       setUsers(u);
       setClasses(new Map(c.map((cl) => [cl.id, cl])));
       setLoading(false);
-    })();
+    })().catch((err) => {
+      // A rejected read used to escape unhandled, leaving
+      // `loading` true forever: the screen showed its spinner
+      // permanently with the real reason only in the console.
+      setLoadError(err instanceof Error ? err.message : "Something went wrong loading this screen.");
+      setLoading(false);
+    });
   }, [profile?.schoolId]);
 
   const filtered = useMemo(() => {
@@ -65,7 +72,9 @@ export default function AdminStudentsPage() {
         <div className="mt-4 flex flex-col divide-y divide-white/6">
           {loading ? (
             <LoadingState />
-          ) : filtered.length === 0 ? (
+          ) : loadError ? (
+          <ErrorState message={loadError} onRetry={() => window.location.reload()} />
+        ) : filtered.length === 0 ? (
             <EmptyState icon={<GraduationCap className="h-5.5 w-5.5" />} title="No students found" />
           ) : (
             filtered.map((s) => {

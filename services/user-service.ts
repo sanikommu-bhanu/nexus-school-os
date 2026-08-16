@@ -6,6 +6,7 @@
 // ============================================================
 import { db } from "@/lib/firebase";
 import { doc, getDoc, getDocs, setDoc, serverTimestamp, updateDoc, documentId, collection, query, where } from "firebase/firestore";
+import { stripUndefined } from "@/lib/utils";
 import type { UserProfile } from "@/types";
 
 /**
@@ -36,23 +37,13 @@ export async function getCurrentUserProfile(uid: string): Promise<UserProfile | 
   return snap.exists() ? (snap.data() as UserProfile) : null;
 }
 
-/**
- * Firestore's client SDK throws on an explicit `undefined` field value
- * ("Unsupported field value: undefined") rather than skipping the field.
- * Optional profile fields — photoURL, phone, schoolId — are naturally
- * absent for most users, and callers pass them through as `undefined`
- * (e.g. a Google account with no picture, or email signup which has no
- * photo at all). Dropping the key is the only correct thing to do: the
- * field is optional in UserProfile, so "absent" is a valid state.
- *
- * This ran as a real bug: signup created the Firebase Auth account, then
- * the profile write threw on `photoURL: undefined`, so the user ended up
- * authenticated with no users/{uid} doc — which every guard reads as
- * "not onboarded" and bounces back to /role forever.
- */
-function stripUndefined<T extends Record<string, unknown>>(data: T): Partial<T> {
-  return Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)) as Partial<T>;
-}
+// stripUndefined now lives in lib/utils.ts — the same hazard it was
+// written for (Firestore rejecting an explicit `undefined`) bit
+// fee-service too, so it's shared rather than duplicated per service.
+// The original bug it fixed here: signup created the Firebase Auth
+// account, then the profile write threw on `photoURL: undefined`, so the
+// user ended up authenticated with no users/{uid} doc — which every
+// guard reads as "not onboarded" and bounces back to /role forever.
 
 export async function createUserProfile(
   uid: string,

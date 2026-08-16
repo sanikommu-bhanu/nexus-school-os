@@ -7,6 +7,7 @@
 import { db } from "@/lib/firebase";
 import { doc, setDoc, collection, query, where, getDocs, serverTimestamp, deleteDoc } from "firebase/firestore";
 import { findConflicts, type SlotLike } from "@/lib/timetable-conflicts";
+import { stripUndefined } from "@/lib/utils";
 import type { TimetableSlot, Weekday } from "@/types";
 
 export async function createTimetableSlot(
@@ -21,10 +22,12 @@ export async function createTimetableSlot(
   const slot: TimetableSlot = {
     id: ref.id,
     schoolId,
-    ...data,
+    // `room` is optional; the admin timetable form works around this at
+    // the call site, but the service should not depend on it doing so.
+    ...stripUndefined(data),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-  };
+  } as TimetableSlot;
   await setDoc(ref, { ...slot, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
   return { slot, conflicts };
 }

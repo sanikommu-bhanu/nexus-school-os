@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { GlassSurface } from "@/components/ui/GlassSurface";
 import { Badge } from "@/components/ui/Badge";
 import { ListRow } from "@/components/ui/ListRow";
-import { LoadingState, EmptyState } from "@/components/ui/States";
+import { LoadingState, EmptyState, ErrorState } from "@/components/ui/States";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { getStudentProfile } from "@/services/student-service";
 import { getFeeStructuresForClass, getPaymentsForStudent, summarizeStudentFees } from "@/services/fee-service";
@@ -18,6 +18,7 @@ export default function StudentFeesPage() {
   const { profile } = useAuthUser();
   const [summary, setSummary] = useState<StudentFeeSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!profile?.schoolId || !profile.id) return;
@@ -30,7 +31,13 @@ export default function StudentFeesPage() {
       ]);
       setSummary(summarizeStudentFees(structures, payments));
       setLoading(false);
-    })();
+    })().catch((err) => {
+      // A rejected read used to escape unhandled, leaving
+      // `loading` true forever: the screen showed its spinner
+      // permanently with the real reason only in the console.
+      setLoadError(err instanceof Error ? err.message : "Something went wrong loading this screen.");
+      setLoading(false);
+    });
   }, [profile?.schoolId, profile?.id]);
 
   return (
@@ -40,6 +47,8 @@ export default function StudentFeesPage() {
 
         {loading ? (
           <LoadingState />
+        ) : loadError ? (
+          <ErrorState message={loadError} onRetry={() => window.location.reload()} />
         ) : !summary || summary.structures.length === 0 ? (
           <EmptyState icon={<IndianRupee className="h-5.5 w-5.5" />} title="No fees set up yet" message="Your school hasn't published any fee structures." />
         ) : (

@@ -68,7 +68,8 @@ export async function getConversation(schoolId: string, conversationId: string):
 export function subscribeToConversations(
   schoolId: string,
   uid: string,
-  onChange: (items: ConversationMeta[]) => void
+  onChange: (items: ConversationMeta[]) => void,
+  onError?: (err: Error) => void
 ): Unsubscribe {
   if (!db) return () => {};
   const q = query(
@@ -76,20 +77,36 @@ export function subscribeToConversations(
     where("participantIds", "array-contains", uid),
     orderBy("updatedAt", "desc")
   );
-  return onSnapshot(q, (snap) => onChange(snap.docs.map((d) => d.data() as ConversationMeta)));
+  // The error callback is not optional in practice. This query needs the
+  // participantIds+updatedAt composite index (see firestore.indexes.json —
+  // it was missing entirely), and onSnapshot reports a missing index or a
+  // rules denial ONLY through this callback. With no handler the failure
+  // was completely silent: onChange never fired, so every screen driven by
+  // this subscription sat on its spinner forever with no error anywhere in
+  // the UI.
+  return onSnapshot(
+    q,
+    (snap) => onChange(snap.docs.map((d) => d.data() as ConversationMeta)),
+    (err) => onError?.(err)
+  );
 }
 
 export function subscribeToMessages(
   schoolId: string,
   conversationId: string,
-  onChange: (items: MessageItem[]) => void
+  onChange: (items: MessageItem[]) => void,
+  onError?: (err: Error) => void
 ): Unsubscribe {
   if (!db) return () => {};
   const q = query(
     collection(db, "schools", schoolId, "conversations", conversationId, "messages"),
     orderBy("createdAt", "asc")
   );
-  return onSnapshot(q, (snap) => onChange(snap.docs.map((d) => d.data() as MessageItem)));
+  return onSnapshot(
+    q,
+    (snap) => onChange(snap.docs.map((d) => d.data() as MessageItem)),
+    (err) => onError?.(err)
+  );
 }
 
 export async function sendMessage(
@@ -131,9 +148,14 @@ export async function sendMessage(
 
 export async function markConversationRead(schoolId: string, conversationId: string, uid: string): Promise<void> {
   if (!db) return;
+  // Note the absent `updatedAt`. The conversation list is ordered by
+  // updatedAt desc, so touching it here — on a pure read — reshuffled the
+  // list every time a thread was merely opened: reading a months-old
+  // conversation jumped it above genuinely recent ones. updatedAt means
+  // "when did this conversation last have activity", and marking your own
+  // copy read is not activity.
   await updateDoc(doc(db, "schools", schoolId, "conversations", conversationId), {
     unreadFor: arrayRemove(uid),
-    updatedAt: serverTimestamp(),
   });
 }
 

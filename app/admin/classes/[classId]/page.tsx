@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { GlassSurface } from "@/components/ui/GlassSurface";
 import { ListRow } from "@/components/ui/ListRow";
 import { QRDisplay } from "@/components/ui/QRDisplay";
-import { EmptyState, LoadingState } from "@/components/ui/States";
+import { EmptyState, LoadingState, ErrorState } from "@/components/ui/States";
 import { Avatar } from "@/components/ui/Avatar";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { getClassById } from "@/services/class-service";
@@ -28,6 +28,7 @@ export default function AdminClassDetailPage() {
   const [attendancePct, setAttendancePct] = useState<number | null>(null);
   const [assignmentCount, setAssignmentCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!profile?.schoolId || !classId) return;
@@ -47,7 +48,13 @@ export default function AdminClassDetailPage() {
       setAttendancePct(records.length > 0 ? summarizeAttendance(records).percentPresent : null);
       setAssignmentCount(assignments.length);
       setLoading(false);
-    })();
+    })().catch((err) => {
+      // A rejected read used to escape unhandled, leaving
+      // `loading` true forever: the screen showed its spinner
+      // permanently with the real reason only in the console.
+      setLoadError(err instanceof Error ? err.message : "Something went wrong loading this screen.");
+      setLoading(false);
+    });
   }, [profile?.schoolId, classId]);
 
   return (
@@ -57,6 +64,8 @@ export default function AdminClassDetailPage() {
 
         {loading ? (
           <LoadingState />
+        ) : loadError ? (
+          <ErrorState message={loadError} onRetry={() => window.location.reload()} />
         ) : !cls ? (
           <EmptyState title="Class not found" />
         ) : (

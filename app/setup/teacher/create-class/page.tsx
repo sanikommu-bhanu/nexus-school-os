@@ -33,11 +33,26 @@ function CreateClassContent() {
     try {
       const name = `${grade}-${section.toUpperCase()}`;
       const created = await createClass(schoolId, user.uid, { name, grade, section: section.toUpperCase(), subject });
-      await attachClassToTeacher(user.uid, created.id);
+      // The class itself exists at this point. Attaching it to the
+      // teacher's denormalized classIds is a convenience index, so it
+      // must not be able to undo a successful creation — the
+      // authoritative link is classes.teacherId, which is already written.
+      await attachClassToTeacher(user.uid, created.id).catch((err) =>
+        console.warn("Class created but couldn't attach it to the teacher profile", err)
+      );
       router.push(`/setup/teacher/class-share?schoolId=${schoolId}&classId=${created.id}`);
-    } catch {
+    } catch (err) {
       setStatus("error");
-      setError("We couldn't create the class. Please try again.");
+      // "Please try again" was actively harmful here: retrying a
+      // permission-denied fails identically every time, and the message
+      // gave the teacher nothing to act on and no way to tell a
+      // deployment problem from a typo.
+      const code = (err as { code?: string })?.code;
+      setError(
+        code === "permission-denied"
+          ? "You don't have permission to create a class in this school. Ask your admin to confirm you've joined with the school code and that the latest security rules are deployed."
+          : `We couldn't create the class: ${err instanceof Error ? err.message : "unknown error"}`
+      );
     }
   };
 

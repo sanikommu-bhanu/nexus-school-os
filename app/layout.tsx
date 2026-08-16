@@ -14,7 +14,10 @@ export const metadata: Metadata = {
   description:
     "NEXUS connects admins, teachers, students and parents into one intelligent school network.",
   manifest: "/manifest.json",
-  icons: { icon: "/icon.png", apple: "/icon.png" },
+  // /icon.png never existed in public/ — it was referenced here and in
+  // manifest.json, so every page load 404'd on the favicon and the
+  // apple-touch icon. Replaced with a real SVG mark.
+  icons: { icon: "/icon.svg", apple: "/icon.svg" },
 };
 
 export const viewport: Viewport = {

@@ -17,6 +17,7 @@ import {
 } from "firebase/firestore";
 import { updateUserProfile } from "@/services/user-service";
 import { addSchoolMember } from "@/services/school-service";
+import { getStudentProfile } from "@/services/student-service";
 import type { ParentStudentLink } from "@/types";
 
 export interface ChildPreview {
@@ -121,9 +122,58 @@ export async function linkParentToStudent(
   // (e.g. linking a second child at the same school).
   await addSchoolMember(schoolId, parentId, "parent");
 
-  await updateUserProfile(parentId, { onboardingComplete: true });
+  // `schoolId` is NOT cosmetic on a parent's profile, and leaving it off
+  // is what made the whole Parent experience look built-but-dead:
+  //
+  //  - app/parent/page.tsx gates announcements, the fee summary, the
+  //    messages bell and "Message your child's teacher" on
+  //    profile.schoolId — all of them silently no-oped, and the message
+  //    button returned before doing anything at all.
+  //  - /parent/updates, /parent/fees and every notification subscription
+  //    bail on the same check.
+  //  - buildAiContext() returns null without it, so the Parent AI screen
+  //    only ever rendered "couldn't load your school context".
+  //  - firestore.rules reads users/{uid} cross-school via
+  //    `resource.data.schoolId is string && isSchoolMember(...)`, so with
+  //    the field absent a teacher could not resolve a parent's NAME —
+  //    which denies the batched getUserProfiles() query behind the
+  //    teacher's message list outright.
+  //
+  // The membership write above already made this true server-side; this
+  // just records it where the client reads it from.
+  await updateUserProfile(parentId, { schoolId, onboardingComplete: true });
 
   return { alreadyLinked: false, linkId: linkRef.id };
+}
+
+/**
+ * Backfills `schoolId` onto a parent's own users/{uid} document.
+ *
+ * Accounts linked before that field was written have a valid parent-child
+ * link and a valid school membership, but no schoolId on their profile —
+ * so every screen listed in linkParentToStudent's note above stays blank
+ * for them forever, with nothing in the UI to explain why and no way to
+ * fix it short of re-linking. Repairing on load is the only path that
+ * doesn't ask those users to redo their setup.
+ *
+ * Derives the school from the first linked child rather than trusting any
+ * client input, re-asserts membership (idempotent), and returns the
+ * resolved id so the caller can refresh the profile it already holds.
+ * Returns null when there's nothing to repair from — no linked child, or
+ * a child whose record can't be read.
+ */
+export async function ensureParentSchoolId(parentId: string): Promise<string | null> {
+  const childIds = await getChildrenForParent(parentId);
+  if (childIds.length === 0) return null;
+
+  for (const childId of childIds) {
+    const student = await getStudentProfile(childId).catch(() => null);
+    if (!student?.schoolId) continue;
+    await addSchoolMember(student.schoolId, parentId, "parent");
+    await updateUserProfile(parentId, { schoolId: student.schoolId });
+    return student.schoolId;
+  }
+  return null;
 }
 
 export async function getChildrenForParent(parentId: string): Promise<string[]> {

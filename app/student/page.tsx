@@ -9,10 +9,10 @@ import { NotificationBell } from "@/components/shell/NotificationBell";
 import { GlassSurface } from "@/components/ui/GlassSurface";
 import { SectionHeader } from "@/components/ui/MetricCard";
 import { ListRow, InsightCard } from "@/components/ui/ListRow";
-import { LoadingState, EmptyState } from "@/components/ui/States";
+import { LoadingState, EmptyState, ErrorState } from "@/components/ui/States";
 import { Badge } from "@/components/ui/Badge";
 import { useAuthUser } from "@/hooks/useAuthUser";
-import { getStudentProfile } from "@/services/student-service";
+import { getStudentProfile, ensureStudentSchoolMembership } from "@/services/student-service";
 import { getClassById } from "@/services/class-service";
 import { getAttendanceForStudent, summarizeAttendance, compareAttendanceWindows } from "@/services/attendance-service";
 import { getAssignmentsForClass } from "@/services/assignment-service";
@@ -39,25 +39,41 @@ export default function StudentPage() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!profile?.schoolId || !profile.id) return;
     (async () => {
-      const student = await getStudentProfile(profile.id);
-      if (!student) { setLoading(false); return; }
-      const [c, records, slots, a] = await Promise.all([
-        getClassById(profile.schoolId!, student.classId),
-        getAttendanceForStudent(profile.schoolId!, profile.id),
-        getTimetableForClass(profile.schoolId!, student.classId),
-        getAssignmentsForClass(profile.schoolId!, student.classId),
-      ]);
-      setCls(c);
-      setAttendancePct(records.length > 0 ? summarizeAttendance(records).percentPresent : null);
-      setAttendanceTrend(compareAttendanceWindows(records));
-      const grouped = groupByDay(slots);
-      setTodaySlots(grouped[todayCode()] ?? []);
-      setAssignments(a.filter((x) => new Date(x.dueDate).getTime() >= Date.now()).slice(0, 3));
-      setLoading(false);
+      try {
+        // Repairs accounts that joined a class before school membership
+        // was part of that flow. Every read below is gated on
+        // isSchoolMember in firestore.rules, so this has to happen first
+        // or they all come back permission-denied. No-ops (one read, no
+        // write) once the membership exists.
+        await ensureStudentSchoolMembership(profile.id);
+
+        const student = await getStudentProfile(profile.id);
+        if (!student) { setLoading(false); return; }
+        const [c, records, slots, a] = await Promise.all([
+          getClassById(profile.schoolId!, student.classId),
+          getAttendanceForStudent(profile.schoolId!, profile.id),
+          getTimetableForClass(profile.schoolId!, student.classId),
+          getAssignmentsForClass(profile.schoolId!, student.classId),
+        ]);
+        setCls(c);
+        setAttendancePct(records.length > 0 ? summarizeAttendance(records).percentPresent : null);
+        setAttendanceTrend(compareAttendanceWindows(records));
+        const grouped = groupByDay(slots);
+        setTodaySlots(grouped[todayCode()] ?? []);
+        setAssignments(a.filter((x) => new Date(x.dueDate).getTime() >= Date.now()).slice(0, 3));
+      } catch (err) {
+        // Previously a rejected read left `loading` true forever, so the
+        // screen showed a spinner with no explanation — the exact symptom
+        // the missing school membership produced.
+        setLoadError(err instanceof Error ? err.message : "We couldn't load your dashboard.");
+      } finally {
+        setLoading(false);
+      }
     })();
 
     const unsub = subscribeToNotifications(profile.schoolId, profile.id, setNotifications);
@@ -81,6 +97,8 @@ export default function StudentPage() {
 
         {loading ? (
           <LoadingState />
+        ) : loadError ? (
+          <ErrorState message={loadError} onRetry={() => window.location.reload()} />
         ) : (
           <>
             <GlassSurface rounded="2xl" className="flex divide-x divide-white/8" padded={false}>

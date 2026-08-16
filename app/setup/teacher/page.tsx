@@ -20,29 +20,41 @@ function JoinSchoolContent() {
   const { user } = useAuthUser();
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   const handleResult = async (raw: string) => {
     if (!user || checking) return;
     setChecking(true);
     setError(null);
 
-    const code = extractCode(raw);
-    const school = await getSchoolByCode(code);
+    // Every step here talks to Firestore and can reject. Without this
+    // try/catch a failure escaped as an unhandled rejection: `checking`
+    // was never cleared, so the screen sat on "Checking code…" forever
+    // with nothing on it explaining why — the error only existed in the
+    // console.
+    try {
+      const code = extractCode(raw);
+      const school = await getSchoolByCode(code);
 
-    if (!school) {
-      setError("That school code isn't valid. Double-check with your admin.");
-      setChecking(false);
-      return;
-    }
+      if (!school) {
+        setError("That school code isn't valid. Double-check with your admin.");
+        return;
+      }
 
-    const { alreadyMember } = await addSchoolMember(school.id, user.uid, "teacher");
-    if (alreadyMember) {
-      // Not an error — just move them forward, no duplicate record created.
+      // alreadyMember is not an error — either way the teacher moves on,
+      // and no duplicate membership record is created.
+      await addSchoolMember(school.id, user.uid, "teacher");
       router.push(`/setup/teacher/profile?schoolId=${school.id}`);
-      return;
+    } catch (err) {
+      const code = (err as { code?: string })?.code;
+      setError(
+        code === "permission-denied"
+          ? "You don't have permission to join this school. If this keeps happening, ask your admin to confirm the school code and that the latest security rules are deployed."
+          : `We couldn't join that school: ${err instanceof Error ? err.message : "unknown error"}`
+      );
+    } finally {
+      setChecking(false);
     }
-
-    router.push(`/setup/teacher/profile?schoolId=${school.id}`);
   };
 
   return (
@@ -61,12 +73,23 @@ function JoinSchoolContent() {
           )}
         </div>
 
-        <p className="pb-10 text-center text-sm text-ink-muted">
+        {/* This used to push to /auth — a sign-in screen is not "help",
+            and with no role param it announces "Signing in as student" to
+            a teacher who is already signed in and halfway through setup.
+            The answer to "don't have a code" is who to ask for one. */}
+        <div className="pb-10 text-center text-sm text-ink-muted">
           Don&apos;t have a code?{" "}
-          <button className="font-semibold text-accent-soft" onClick={() => router.push("/auth")}>
+          <button className="font-semibold text-accent-soft" onClick={() => setShowHelp((v) => !v)}>
             Need help?
           </button>
-        </p>
+          {showHelp && (
+            <p className="mx-auto mt-3 max-w-[280px] text-xs text-ink-faint">
+              Your school code is created by your admin when they set up the school — it looks like{" "}
+              <span className="font-semibold text-ink-muted">SCH-7F82K91</span>. Ask them to share the code or the
+              QR from their School screen.
+            </p>
+          )}
+        </div>
       </div>
     </main>
   );

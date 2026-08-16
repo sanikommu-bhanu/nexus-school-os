@@ -113,7 +113,8 @@ export async function POST(request: Request) {
       errorCategory: category,
     });
 
-    const status = category === "rate_limited" ? 429 : category === "timeout" ? 504 : 502;
+    const status =
+      category === "rate_limited" ? 429 : category === "timeout" ? 504 : category === "overloaded" ? 503 : 502;
     const message =
       category === "rate_limited"
         ? "AI usage limit reached. Please try again in a minute."
@@ -121,6 +122,8 @@ export async function POST(request: Request) {
         ? "Reading this document is taking too long. Please try again."
         : category === "invalid_response"
         ? "NEXUS AI couldn't make sense of this document."
+        : category === "overloaded"
+        ? "NEXUS AI is busy right now. Please try again in a moment."
         : "NEXUS AI is temporarily unavailable.";
 
     return Response.json({ configured: true, error: message, errorCategory: category }, { status });

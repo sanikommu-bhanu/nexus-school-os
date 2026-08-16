@@ -6,6 +6,28 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * Drops keys whose value is `undefined` before a Firestore write.
+ *
+ * Firestore's client SDK throws "Unsupported field value: undefined"
+ * rather than skipping the field, and every domain type here has
+ * genuinely optional fields (a fee structure with no classId is
+ * school-wide, a timetable slot with no room, an assignment with no
+ * attachment). "Absent" is the correct representation of those, so the
+ * key has to go rather than be written as undefined.
+ *
+ * This was already solved twice in-place — services/user-service.ts had
+ * its own copy and app/admin/classes/[classId]/timetable/page.tsx works
+ * around it at the call site — while services/fee-service.ts had neither,
+ * which made creating a school-wide fee structure (the DEFAULT option in
+ * the admin's dropdown) throw every single time. Centralised here so a
+ * write service is safe by construction instead of depending on each
+ * caller remembering.
+ */
+export function stripUndefined<T extends Record<string, unknown>>(data: T): Partial<T> {
+  return Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)) as Partial<T>;
+}
+
+/**
  * Generates a collision-resistant public code, e.g. "SCH-7F82K91".
  * Uses a non-sequential, non-guessable alphabet (no 0/O/1/I ambiguity).
  * Real production code should call this server-side (or via a

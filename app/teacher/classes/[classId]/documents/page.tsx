@@ -6,7 +6,7 @@ import { AuthGuard } from "@/components/AuthGuard";
 import { AppShell } from "@/components/shell/AppShell";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { ListRow } from "@/components/ui/ListRow";
-import { EmptyState, LoadingState } from "@/components/ui/States";
+import { EmptyState, LoadingState, ErrorState } from "@/components/ui/States";
 import { cn } from "@/lib/utils";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { getClassById } from "@/services/class-service";
@@ -29,6 +29,7 @@ export default function TeacherClassDocumentsPage() {
   const [cls, setCls] = useState<ClassEntity | null>(null);
   const [docs, setDocs] = useState<DocumentMeta[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [docType, setDocType] = useState<DocumentType>("notes");
 
   useEffect(() => {
@@ -38,7 +39,13 @@ export default function TeacherClassDocumentsPage() {
       setCls(c);
       setDocs(d);
       setLoading(false);
-    })();
+    })().catch((err) => {
+      // A rejected read used to escape unhandled, leaving
+      // `loading` true forever: the screen showed its spinner
+      // permanently with the real reason only in the console.
+      setLoadError(err instanceof Error ? err.message : "Something went wrong loading this screen.");
+      setLoading(false);
+    });
   }, [profile?.schoolId, classId]);
 
   return (
@@ -76,7 +83,9 @@ export default function TeacherClassDocumentsPage() {
           <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-faint">Uploaded ({docs.length})</p>
           {loading ? (
             <LoadingState />
-          ) : docs.length === 0 ? (
+          ) : loadError ? (
+          <ErrorState message={loadError} onRetry={() => window.location.reload()} />
+        ) : docs.length === 0 ? (
             <EmptyState icon={<FileText className="h-5.5 w-5.5" />} title="No documents yet" />
           ) : (
             <div className="flex flex-col divide-y divide-white/6">

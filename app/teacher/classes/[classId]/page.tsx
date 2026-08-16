@@ -16,7 +16,7 @@ import { useAuthUser } from "@/hooks/useAuthUser";
 import { getClassById } from "@/services/class-service";
 import { getStudentsForClass } from "@/services/student-service";
 import { getUserProfiles } from "@/services/user-service";
-import { getAssignmentsForClass } from "@/services/assignment-service";
+import { getAssignmentsForClass, getSubmissionCounts } from "@/services/assignment-service";
 import { getAttendanceForClassRange, summarizeAttendance, compareAttendanceWindows, todayISO } from "@/services/attendance-service";
 import { getParentsForStudent } from "@/services/parent-link-service";
 import { getOrCreateConversation } from "@/services/messaging-service";
@@ -37,6 +37,7 @@ export default function TeacherClassWorkspacePage() {
     priorPct: null,
     delta: null,
   });
+  const [submissionCounts, setSubmissionCounts] = useState<Map<string, { submitted: number; total: number }>>(new Map());
   const [markedToday, setMarkedToday] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -82,6 +83,10 @@ export default function TeacherClassWorkspacePage() {
         setAttendancePct(trend.recentPct ?? (records.length > 0 ? summarizeAttendance(records).percentPresent : null));
         setMarkedToday(records.some((r) => r.date === todayISO()));
         setAssignments(a);
+        // Real tallies from the seeded submission rows. SCHEMA.md has
+        // always described these as "always real" — they just had nowhere
+        // to be shown, so a teacher had no way to see who had handed in.
+        setSubmissionCounts(await getSubmissionCounts(profile.schoolId!, a.map((x) => x.id)).catch(() => new Map()));
       } catch (err) {
         setLoadError(err instanceof Error ? err.message : "Couldn't load this class.");
       } finally {
@@ -159,9 +164,18 @@ export default function TeacherClassWorkspacePage() {
               <div className="mt-7">
                 <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-faint">Assignments</p>
                 <div className="flex flex-col divide-y divide-white/6">
-                  {assignments.map((a) => (
-                    <ListRow key={a.id} title={a.title} subtitle={`Due ${new Date(a.dueDate).toLocaleDateString()}`} trailing={<Badge tone="accent">{a.subject}</Badge>} />
-                  ))}
+                  {assignments.map((a) => {
+                    const c = submissionCounts.get(a.id);
+                    const due = `Due ${new Date(a.dueDate).toLocaleDateString()}`;
+                    return (
+                      <ListRow
+                        key={a.id}
+                        title={a.title}
+                        subtitle={c && c.total > 0 ? `${due} · ${c.submitted} of ${c.total} submitted` : due}
+                        trailing={<Badge tone="accent">{a.subject}</Badge>}
+                      />
+                    );
+                  })}
                 </div>
               </div>
             )}

@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Avatar } from "@/components/ui/Avatar";
 import { GlassSurface } from "@/components/ui/GlassSurface";
 import { ListRow } from "@/components/ui/ListRow";
-import { LoadingState, EmptyState } from "@/components/ui/States";
+import { LoadingState, EmptyState, ErrorState } from "@/components/ui/States";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { getTeacherProfile } from "@/services/teacher-service";
 import { getUserProfiles } from "@/services/user-service";
@@ -23,6 +23,7 @@ export default function TeacherDetailPage() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [classes, setClasses] = useState<ClassEntity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!profile?.schoolId || !teacherId) return;
@@ -37,7 +38,13 @@ export default function TeacherDetailPage() {
       setUser(u.get(teacherId) ?? null);
       setClasses(classList.filter((c): c is ClassEntity => c !== null));
       setLoading(false);
-    })();
+    })().catch((err) => {
+      // A rejected read used to escape unhandled, leaving
+      // `loading` true forever: the screen showed its spinner
+      // permanently with the real reason only in the console.
+      setLoadError(err instanceof Error ? err.message : "Something went wrong loading this screen.");
+      setLoading(false);
+    });
   }, [profile?.schoolId, teacherId]);
 
   return (
@@ -46,6 +53,8 @@ export default function TeacherDetailPage() {
         <PageHeader title="Teacher Profile" />
         {loading ? (
           <LoadingState />
+        ) : loadError ? (
+          <ErrorState message={loadError} onRetry={() => window.location.reload()} />
         ) : !teacher || !user ? (
           <EmptyState title="Teacher not found" />
         ) : (

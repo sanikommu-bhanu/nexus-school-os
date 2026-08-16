@@ -10,6 +10,7 @@
 import { db } from "@/lib/firebase";
 import { doc, getDoc, setDoc, collection, query, where, getDocs, serverTimestamp, orderBy, updateDoc } from "firebase/firestore";
 import { uploadToCloudinary } from "@/lib/cloudinary";
+import { stripUndefined } from "@/lib/utils";
 import type { DocumentMeta, DocumentType } from "@/types";
 
 export async function isAiConfigured(): Promise<boolean> {
@@ -230,10 +231,18 @@ export async function uploadAndProcessDocument(
     ...(aiSummary !== undefined ? { aiSummary } : {}),
     ...(extractedFields !== undefined ? { extractedFields } : {}),
     aiPipelineStep: pipelineStep,
-    ...meta,
+    // `meta` was spread raw while aiSummary/extractedFields just above
+    // were carefully guarded — but meta.classId is optional too, and the
+    // admin's school-level uploader (app/admin/operations/page.tsx renders
+    // DocumentPipeline with no classId prop) passes it as undefined.
+    // Firestore rejected the write, so an admin document upload failed
+    // AFTER the bytes were already in Cloudinary and the whole AI pipeline
+    // had run — surfacing only as "Something went wrong uploading this
+    // file", with an orphaned file left behind.
+    ...stripUndefined(meta),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-  };
+  } as DocumentMeta;
   // Firestore's client SDK rejects `undefined` field values by default
   // (no ignoreUndefinedProperties set on this project's db instance —
   // see lib/firebase.ts) — the spreads above keep aiSummary/
@@ -305,10 +314,11 @@ export async function uploadDocument(
     fileSize: file.size,
     mimeType: file.type,
     aiStatus,
-    ...meta,
+    // Same optional-classId hazard as uploadAndProcessDocument above.
+    ...stripUndefined(meta),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-  };
+  } as DocumentMeta;
   await setDoc(ref, { ...document, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
 
   return document;

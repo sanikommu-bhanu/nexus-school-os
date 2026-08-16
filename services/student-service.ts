@@ -5,6 +5,7 @@ import { db } from "@/lib/firebase";
 import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs } from "firebase/firestore";
 import { generateJoinCode } from "@/lib/utils";
 import { updateUserProfile } from "@/services/user-service";
+import { addSchoolMember } from "@/services/school-service";
 import type { StudentProfile } from "@/types";
 export async function getStudentsForSchool(schoolId: string): Promise<StudentProfile[]> {
   if (!db) return [];
@@ -89,4 +90,24 @@ export async function getStudentProfile(userId: string): Promise<StudentProfile 
   if (!db) return null;
   const snap = await getDoc(doc(db, "students", userId));
   return snap.exists() ? (snap.data() as StudentProfile) : null;
+}
+
+/**
+ * Backfills the student's schools/{schoolId}/members record.
+ *
+ * Students who joined before joinClassAsStudent started writing school
+ * membership are enrolled in a class but are not members of its school,
+ * and firestore.rules gates attendance, timetable, assignments,
+ * announcements, documents and fees on `isSchoolMember` — so their app is
+ * permanently, silently empty with no in-product way to recover.
+ *
+ * addSchoolMember short-circuits on an existing record, so in the normal
+ * case this costs a single document read and writes nothing. The school
+ * is taken from the student's own profile, never from caller input, and
+ * the role is always "student".
+ */
+export async function ensureStudentSchoolMembership(userId: string): Promise<void> {
+  const student = await getStudentProfile(userId);
+  if (!student?.schoolId) return;
+  await addSchoolMember(student.schoolId, userId, "student");
 }

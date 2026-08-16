@@ -19,11 +19,20 @@ function ClassShareContent() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!schoolId || !classId) return;
-    getClassById(schoolId, classId).then((c) => {
-      setClassEntity(c);
+    // Two ways this screen used to hang on "Setting up your class…"
+    // forever: arriving without both query params (the early return
+    // never cleared `loading`), and a rejected read (no .catch). The
+    // class itself is already created by this point, so neither case
+    // should trap the teacher — fall through to the success screen,
+    // which degrades to a generic heading without the class doc.
+    if (!schoolId || !classId) {
       setLoading(false);
-    });
+      return;
+    }
+    getClassById(schoolId, classId)
+      .then(setClassEntity)
+      .catch(() => setClassEntity(null))
+      .finally(() => setLoading(false));
   }, [schoolId, classId]);
 
   if (loading) {

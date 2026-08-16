@@ -97,7 +97,12 @@ async function resolveAttendance(ctx: AiContext, question: string): Promise<AiAn
     return phraseAnswer(ctx, question, facts, fallback, {
       title: "Your Attendance",
       grounded: true,
-      actions: [action({ id: "view-attendance", kind: "navigate", label: "View Attendance", href: "/student/attendance" })],
+      // Every href below must name a route that exists in app/. These
+      // pointed at /student/attendance, /parent/dashboard,
+      // /admin/analytics, /student/assignments and /teacher/assignments —
+      // none of which are routes in this app, so tapping the action
+      // NEXUS AI had just offered dropped the user on a 404.
+      actions: [action({ id: "view-attendance", kind: "navigate", label: "View Attendance", href: "/student" })],
     });
   }
 
@@ -113,7 +118,7 @@ async function resolveAttendance(ctx: AiContext, question: string): Promise<AiAn
         : `Your child's attendance is ${s.percentPresent}% over the last ${s.total} recorded days.`;
     const facts = `childAttendancePercent=${s.percentPresent}, totalDaysRecorded=${s.total}`;
     const declined = s.percentPresent < LOW_ATTENDANCE_THRESHOLD;
-    const actions: AiAction[] = [action({ id: "view-attendance", kind: "navigate", label: "View Attendance", href: "/parent/dashboard" })];
+    const actions: AiAction[] = [action({ id: "view-attendance", kind: "navigate", label: "View Attendance", href: "/parent" })];
     if (declined && ctx.classIds[0]) {
       const cls = await getClassById(ctx.schoolId, ctx.classIds[0]).catch(() => null);
       if (cls?.teacherId) {
@@ -197,7 +202,7 @@ async function resolveAttendance(ctx: AiContext, question: string): Promise<AiAn
     actions:
       studentsBelowThreshold > 0
         ? [
-            action({ id: "view-analytics", kind: "navigate", label: "View Analytics", href: "/admin/analytics" }),
+            action({ id: "view-analytics", kind: "navigate", label: "View Analytics", href: "/admin/operations" }),
             action({ id: "view-classes", kind: "navigate", label: "View Classes", href: "/admin/classes" }),
           ]
         : undefined,
@@ -256,10 +261,10 @@ async function resolveAssignments(ctx: AiContext, question: string): Promise<AiA
   const actions: AiAction[] =
     ctx.role === "student"
       ? [
-          action({ id: "view-assignments", kind: "navigate", label: "View Assignments", href: "/student/assignments" }),
+          action({ id: "view-assignments", kind: "navigate", label: "View Assignments", href: "/student/learn" }),
           action({ id: "study-plan", kind: "navigate", label: "Create Study Plan", href: "/student/ai?prompt=Create a revision plan for my pending assignments" }),
         ]
-      : [action({ id: "view-assignments", kind: "navigate", label: "View Assignments", href: ctx.role === "parent" ? "/parent/dashboard" : "/teacher/assignments" })];
+      : [action({ id: "view-assignments", kind: "navigate", label: "View Assignments", href: ctx.role === "parent" ? "/parent" : "/teacher/classes" })];
   return { title: `${upcoming.length} Pending Assignment${upcoming.length > 1 ? "s" : ""}`, grounded: true, text, rateLimited, actions };
 }
 
@@ -313,6 +318,55 @@ async function resolveLinkedChildren(ctx: AiContext, question: string): Promise<
   return phraseAnswer(ctx, question, fallback, fallback, { grounded: true });
 }
 
+/** What the tool router can answer from live school data. */
+const SUPPORTED_TOPICS =
+  "I can answer questions about attendance, today's schedule, assignments, announcements, and rosters using your live school data.";
+
+/**
+ * Handles a question no tool intent matched.
+ *
+ * Sends it to Gemini with NO school facts attached — the route's general
+ * mode, which is instructed to refuse rather than guess at anything
+ * school-specific. The answer is returned with `grounded: false` because
+ * nothing was looked up, so the UI never labels it as backed by school
+ * records.
+ *
+ * Only when the server reports no key configured does the "connect a
+ * Gemini API key" hint appear — which is the one situation where that
+ * advice is actually true.
+ */
+async function answerOpenEnded(ctx: AiContext, question: string): Promise<AiAnswer> {
+  try {
+    const res = await fetch("/api/ai/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, role: ctx.role }),
+    });
+
+    if (res.status === 429) {
+      return { grounded: false, rateLimited: true, text: `${SUPPORTED_TOPICS} AI is busy right now — try again in a moment.` };
+    }
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.configured === false) {
+        // The genuine "no key" case.
+        return {
+          grounded: false,
+          text: `${SUPPORTED_TOPICS} Try asking one of those, or connect a Gemini API key for open-ended answers.`,
+        };
+      }
+      if (data.text) return { grounded: false, text: data.text as string };
+    }
+
+    // Configured but the call failed — say so honestly instead of
+    // blaming a missing key.
+    return { grounded: false, text: `${SUPPORTED_TOPICS} I couldn't reach NEXUS AI for anything broader just now.` };
+  } catch {
+    return { grounded: false, text: `${SUPPORTED_TOPICS} I couldn't reach NEXUS AI for anything broader just now.` };
+  }
+}
+
 export async function askNexus(ctx: AiContext, question: string): Promise<AiAnswer> {
   const q = question.toLowerCase();
 
@@ -345,11 +399,13 @@ export async function askNexus(ctx: AiContext, question: string): Promise<AiAnsw
       return await resolvePolicyQuestion(ctx, question);
     }
 
-    return {
-      grounded: false,
-      text:
-        "I can answer questions about attendance, today's schedule, assignments, announcements, and rosters right now using your live school data. Try asking one of those, or connect a Gemini API key for open-ended answers.",
-    };
+    // No intent matched. Previously this returned a hardcoded string
+    // telling the user to "connect a Gemini API key" — regardless of
+    // whether one was configured, because nothing here ever checked.
+    // With a perfectly working key you still got told to connect one,
+    // and the promised "open-ended answers" never happened because the
+    // model was never called on this path at all.
+    return await answerOpenEnded(ctx, question);
   } catch (err) {
     return { grounded: false, unavailable: true, text: "NEXUS AI ran into a problem answering that. Please try again." };
   }

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/ui/Avatar";
 import { GlassSurface } from "@/components/ui/GlassSurface";
 import { useAuthUser } from "@/hooks/useAuthUser";
+import { clearSelectedChild } from "@/hooks/useSelectedChild";
 import { LogOut } from "lucide-react";
 import type { Role } from "@/types";
 
@@ -21,8 +22,15 @@ export function DashboardStub({ role }: { role: Role }) {
   const router = useRouter();
 
   const handleSignOut = async () => {
-    if (auth) await signOut(auth);
-    router.replace("/onboarding");
+    // Kept in step with components/shell/ProfileScreen.tsx (the logout
+    // every role actually reaches) so this Phase-2 placeholder can't
+    // reintroduce the old /onboarding destination if it's ever reused.
+    try {
+      clearSelectedChild();
+      if (auth) await signOut(auth);
+    } finally {
+      router.replace("/role");
+    }
   };
 
   return (

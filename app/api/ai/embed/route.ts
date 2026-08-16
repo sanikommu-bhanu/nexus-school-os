@@ -47,7 +47,18 @@ export async function POST(request: Request) {
   } catch (err) {
     const category = err instanceof AiProviderError ? err.category : "unknown";
     logAiEvent({ route: "/api/ai/embed", requestType: "embed", ok: false, latencyMs: Date.now() - startedAt, errorCategory: category });
-    const status = category === "rate_limited" ? 429 : category === "timeout" ? 504 : 502;
-    return Response.json({ configured: true, error: "Knowledge search is temporarily unavailable.", errorCategory: category }, { status });
+    const status =
+      category === "rate_limited" ? 429 : category === "timeout" ? 504 : category === "overloaded" ? 503 : 502;
+    return Response.json(
+      {
+        configured: true,
+        error:
+          category === "overloaded"
+            ? "Knowledge search is busy right now. Please try again in a moment."
+            : "Knowledge search is temporarily unavailable.",
+        errorCategory: category,
+      },
+      { status }
+    );
   }
 }

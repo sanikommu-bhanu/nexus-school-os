@@ -43,7 +43,8 @@ export async function createNotification(
 export function subscribeToNotifications(
   schoolId: string,
   recipientId: string,
-  onChange: (items: NotificationItem[]) => void
+  onChange: (items: NotificationItem[]) => void,
+  onError?: (err: Error) => void
 ): Unsubscribe {
   if (!db) return () => {};
   const q = query(
@@ -52,7 +53,15 @@ export function subscribeToNotifications(
     orderBy("createdAt", "desc"),
     fbLimit(50)
   );
-  return onSnapshot(q, (snap) => onChange(snap.docs.map((d) => d.data() as NotificationItem)));
+  // Without this third argument a missing composite index or a rules
+  // denial is reported nowhere at all — onChange simply never fires and
+  // the bell/notification screens stay empty or stuck, indistinguishable
+  // from "you have no notifications".
+  return onSnapshot(
+    q,
+    (snap) => onChange(snap.docs.map((d) => d.data() as NotificationItem)),
+    (err) => onError?.(err)
+  );
 }
 
 export async function markNotificationRead(schoolId: string, notificationId: string): Promise<void> {

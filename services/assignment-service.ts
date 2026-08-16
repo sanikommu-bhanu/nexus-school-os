@@ -20,6 +20,7 @@ import {
 } from "firebase/firestore";
 import { getClassMembers } from "@/services/class-service";
 import { createNotification } from "@/services/notification-service";
+import { stripUndefined } from "@/lib/utils";
 import type { Assignment, AssignmentSubmission, SubmissionStatus } from "@/types";
 
 export async function createAssignment(
@@ -33,10 +34,11 @@ export async function createAssignment(
     id: ref.id,
     schoolId,
     teacherId,
-    ...data,
+    // attachmentURL/attachmentName are absent on most assignments.
+    ...stripUndefined(data),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-  };
+  } as Assignment;
   await setDoc(ref, { ...assignment, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
 
   // Seed a real "pending" submission row per enrolled student.
@@ -124,13 +126,74 @@ export async function markSubmission(
   schoolId: string,
   assignmentId: string,
   studentId: string,
+  classId: string,
   status: SubmissionStatus
 ): Promise<void> {
-  if (!db) return;
+  if (!db) throw new Error("Firebase isn't configured.");
   const subId = `${assignmentId}_${studentId}`;
   await setDoc(
     doc(db, "schools", schoolId, "assignments", assignmentId, "submissions", subId),
-    { status, submittedAt: new Date().toISOString(), updatedAt: serverTimestamp() },
+    {
+      // The identifying fields are written on EVERY call, not just the
+      // seeded-row update path. A student who joined the class after the
+      // assignment was created has no seeded row, so this write is a
+      // create — and the previous payload (status/submittedAt only)
+      // produced a document with no studentId or classId, which the
+      // submissions rule reads to decide ownership. Missing fields raise
+      // an evaluation error in rules, so that write was denied outright.
+      // Re-stating them is a no-op on the update path and correct on the
+      // create path.
+      id: subId,
+      assignmentId,
+      studentId,
+      classId,
+      status,
+      submittedAt: new Date().toISOString(),
+      updatedAt: serverTimestamp(),
+    },
     { merge: true }
   );
+}
+
+/**
+ * The student-facing "I've handed this in" action.
+ *
+ * Derives late-vs-on-time from the assignment's own dueDate rather than
+ * trusting a caller-supplied status, so a submission can never be
+ * recorded as on-time after the deadline. `grade` is deliberately never
+ * written here — firestore.rules pins it unchanged on a student's own
+ * update, and this is the path that must not trip that check.
+ */
+export async function submitAssignment(
+  schoolId: string,
+  assignment: Pick<Assignment, "id" | "classId" | "dueDate">,
+  studentId: string
+): Promise<SubmissionStatus> {
+  const status: SubmissionStatus = Date.now() > new Date(assignment.dueDate).getTime() ? "late" : "submitted";
+  await markSubmission(schoolId, assignment.id, studentId, assignment.classId, status);
+  return status;
+}
+
+/**
+ * Submission tallies for a set of assignments, for the teacher's roster
+ * view. Returns real counts read from the seeded rows — an assignment
+ * with no submissions collection yet reports 0 submitted, never an
+ * invented number.
+ */
+export async function getSubmissionCounts(
+  schoolId: string,
+  assignmentIds: string[]
+): Promise<Map<string, { submitted: number; total: number }>> {
+  const counts = new Map<string, { submitted: number; total: number }>();
+  if (!db || assignmentIds.length === 0) return counts;
+  await Promise.all(
+    assignmentIds.map(async (id) => {
+      const subs = await getSubmissionsForAssignment(schoolId, id).catch(() => []);
+      counts.set(id, {
+        submitted: subs.filter((s) => s.status !== "pending").length,
+        total: subs.length,
+      });
+    })
+  );
+  return counts;
 }

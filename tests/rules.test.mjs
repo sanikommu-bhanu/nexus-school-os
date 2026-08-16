@@ -25,8 +25,10 @@ import {
   updateDoc,
   deleteDoc,
   collection,
+  collectionGroup,
   addDoc,
   getDocs,
+  increment,
   query,
   where,
 } from "firebase/firestore";
@@ -641,6 +643,208 @@ await it("a student CANNOT create a timetable slot", async () => {
       period: 2,
       startTime: "10:00",
       endTime: "10:45",
+    })
+  );
+});
+
+// ============================================================
+group("join-by-code — the paths onboarding actually depends on");
+// ============================================================
+
+// These four cover failures that made whole flows impossible rather than
+// merely insecure, and none of them were exercised before: a rules file
+// that is airtight but denies the app's own primary path is still broken.
+
+await it("a brand-new user CAN resolve a class by code via a collectionGroup query", async () => {
+  // getClassByCode() (services/class-service.ts) — the entire Student
+  // Join flow. A collectionGroup query is only authorised by a rule with
+  // a recursive wildcard; the per-school classes rule does not cover it,
+  // so this was permission-denied for every student trying to join.
+  const snap = await assertSucceeds(
+    getDocs(query(collectionGroup(asOutsider, "classes"), where("code", "==", "NX-10A-MATH-42")))
+  );
+  if (snap.empty) throw new Error("query allowed but matched no class — check the fixture code value");
+});
+
+await it("a user CAN read their own school membership doc before being a member elsewhere", async () => {
+  // addSchoolMember()'s idempotency check. Gated solely on
+  // isSchoolMember this is circular and denies exactly the joiners.
+  await assertSucceeds(getDoc(doc(asOutsider, "schools", SCHOOL, "members", OUTSIDER)));
+});
+
+await it("a user CANNOT read someone else's school membership doc without being a member", async () => {
+  await assertFails(getDoc(doc(asOutsider, "schools", SCHOOL_B, "members", OWNER)));
+});
+
+await it("a joining student CAN self-create their school membership with role:student", async () => {
+  // joinClassAsStudent()'s first write. Students were the one role that
+  // never got a schools/{id}/members record, which denied them every
+  // isSchoolMember-gated read in the app (see the two assertions below).
+  const joiner = testEnv.authenticatedContext("uid_new_student").firestore();
+  await assertSucceeds(
+    setDoc(doc(joiner, "schools", SCHOOL, "members", "uid_new_student"), {
+      userId: "uid_new_student",
+      schoolId: SCHOOL,
+      role: "student",
+      status: "active",
+    })
+  );
+});
+
+await it("a student WITHOUT school membership cannot read school-scoped data", async () => {
+  await assertFails(getDocs(collection(asOutsider, "schools", SCHOOL_B, "timetable")));
+});
+
+await it("a student WITH school membership CAN read the timetable", async () => {
+  await assertSucceeds(getDocs(collection(asStudent, "schools", SCHOOL, "timetable")));
+});
+
+await it("a class member CAN increment studentCount by exactly 1 (the join counter)", async () => {
+  // joinClassAsStudent()'s second write. STUDENT is seeded as a class
+  // member below; without this grant the join half-committed.
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), "schools", SCHOOL, "classes", CLASS, "members", STUDENT), {
+      userId: STUDENT,
+      classId: CLASS,
+      schoolId: SCHOOL,
+      role: "student",
+    });
+  });
+  await assertSucceeds(
+    updateDoc(doc(asStudent, "schools", SCHOOL, "classes", CLASS), { studentCount: increment(1) })
+  );
+});
+
+await it("a class member CANNOT use the studentCount grant to rewrite anything else", async () => {
+  await assertFails(
+    updateDoc(doc(asStudent, "schools", SCHOOL, "classes", CLASS), {
+      studentCount: increment(1),
+      teacherId: STUDENT,
+    })
+  );
+});
+
+await it("a class member CANNOT set studentCount to an arbitrary value", async () => {
+  await assertFails(updateDoc(doc(asStudent, "schools", SCHOOL, "classes", CLASS), { studentCount: 9999 }));
+});
+
+await it("a non-member CANNOT touch studentCount at all", async () => {
+  await assertFails(
+    updateDoc(doc(asOutsider, "schools", SCHOOL, "classes", CLASS), { studentCount: increment(1) })
+  );
+});
+
+// ============================================================
+group("admin acting on behalf of staff — the /admin/classes create flow");
+// ============================================================
+
+await it("an admin CAN create a class whose teacherId is someone else", async () => {
+  // The admin Create Class form picks a teacher, so teacherId is never
+  // the admin's own uid. A self-only create rule denied every one.
+  await assertSucceeds(
+    setDoc(doc(asOwner, "schools", SCHOOL, "classes", "class_admin_made"), {
+      id: "class_admin_made",
+      schoolId: SCHOOL,
+      teacherId: TEACHER,
+      name: "8-C",
+      code: "NX-8C-ENG-77",
+      studentCount: 0,
+    })
+  );
+});
+
+await it("an admin CAN seed the teacher's class-membership row for that class", async () => {
+  await assertSucceeds(
+    setDoc(doc(asOwner, "schools", SCHOOL, "classes", "class_admin_made", "members", TEACHER), {
+      userId: TEACHER,
+      classId: "class_admin_made",
+      schoolId: SCHOOL,
+      role: "teacher",
+    })
+  );
+});
+
+await it("a non-admin member CANNOT create a class for a different teacher", async () => {
+  await assertFails(
+    setDoc(doc(asTeacher2, "schools", SCHOOL, "classes", "class_hijack"), {
+      id: "class_hijack",
+      schoolId: SCHOOL,
+      teacherId: TEACHER,
+      name: "8-D",
+      code: "NX-8D-ENG-78",
+      studentCount: 0,
+    })
+  );
+});
+
+await it("an admin CAN append to a teacher's classIds", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), "teachers", TEACHER), {
+      userId: TEACHER,
+      schoolId: SCHOOL,
+      subject: "Mathematics",
+      classIds: [],
+    });
+  });
+  await assertSucceeds(updateDoc(doc(asOwner, "teachers", TEACHER), { classIds: ["class_admin_made"] }));
+});
+
+await it("an admin CANNOT use that grant to rewrite a teacher's other fields", async () => {
+  await assertFails(updateDoc(doc(asOwner, "teachers", TEACHER), { subject: "Nothing", classIds: [] }));
+});
+
+await it("a fellow teacher CANNOT touch another teacher's classIds", async () => {
+  await assertFails(updateDoc(doc(asTeacher2, "teachers", TEACHER), { classIds: ["x"] }));
+});
+
+// ============================================================
+group("assignment submissions — the student's own hand-in path");
+// ============================================================
+
+await it("a student CAN create their OWN submission row when none was seeded", async () => {
+  // Late joiners have no seeded row, so "mark as submitted" is a create.
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), "schools", SCHOOL, "assignments", "assign_1"), {
+      id: "assign_1",
+      schoolId: SCHOOL,
+      classId: CLASS,
+      teacherId: TEACHER,
+      title: "Chapter 4 problems",
+      dueDate: "2099-01-01",
+    });
+  });
+  await assertSucceeds(
+    setDoc(doc(asStudent, "schools", SCHOOL, "assignments", "assign_1", "submissions", `assign_1_${STUDENT}`), {
+      id: `assign_1_${STUDENT}`,
+      assignmentId: "assign_1",
+      studentId: STUDENT,
+      classId: CLASS,
+      status: "submitted",
+    })
+  );
+});
+
+await it("a student CANNOT create a submission row on someone else's behalf", async () => {
+  await assertFails(
+    setDoc(doc(asStudent, "schools", SCHOOL, "assignments", "assign_1", "submissions", `assign_1_other`), {
+      id: "assign_1_other",
+      assignmentId: "assign_1",
+      studentId: "uid_someone_else",
+      classId: CLASS,
+      status: "submitted",
+    })
+  );
+});
+
+await it("a student CANNOT self-create a submission carrying a grade", async () => {
+  await assertFails(
+    setDoc(doc(asStudent, "schools", SCHOOL, "assignments", "assign_1", "submissions", `assign_1_graded`), {
+      id: "assign_1_graded",
+      assignmentId: "assign_1",
+      studentId: STUDENT,
+      classId: CLASS,
+      status: "graded",
+      grade: "A+",
     })
   );
 });

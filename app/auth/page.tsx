@@ -8,6 +8,7 @@ import { LoadingState } from "@/components/ui/States";
 import { auth, googleProvider, isFirebaseConfigured } from "@/lib/firebase";
 import { signInWithPopup } from "firebase/auth";
 import { ensureUserProfile } from "@/services/user-service";
+import { publishAuthProfile } from "@/hooks/useAuthUser";
 import type { Role } from "@/types";
 
 function GoogleGlyph() {
@@ -51,6 +52,12 @@ function AuthScreen() {
         role,
       });
 
+      // Hand the freshly written/resolved profile to the shared auth
+      // store before navigating. Account creation fires onAuthStateChanged
+      // BEFORE this profile exists, so without this the next screen's
+      // AuthGuard can read a cached "no profile" and bounce a brand-new
+      // user back to /role.
+      publishAuthProfile(profile);
       router.replace(profile.onboardingComplete ? `/${profile.role}` : `/setup/${profile.role}`);
     } catch (err: any) {
       const code = typeof err?.code === "string" ? err.code : "";

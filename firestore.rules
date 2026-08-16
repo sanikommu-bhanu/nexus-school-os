@@ -94,7 +94,15 @@ service cloud.firestore {
       allow delete: if false;
 
       match /members/{memberId} {
-        allow read: if isSchoolMember(schoolId);
+        // `|| isSelf(memberId)`: a user must be able to read their OWN
+        // membership record. Gating it solely on isSchoolMember made the
+        // check circular — you needed membership to ask whether you had
+        // membership — so the "am I already in this school?" lookup that
+        // every join-by-code flow runs was denied for precisely the
+        // people trying to join. This exposes nothing new: the document
+        // is keyed by the reader's own uid and holds only their own
+        // userId/schoolId/role/status.
+        allow read: if isSchoolMember(schoolId) || isSelf(memberId);
         // A user may only ever add themself as a member (the join flow);
         // admins may manage others via a trusted server path if needed later.
         // CRITICAL: create only checked isSelf(memberId) with no constraint
@@ -129,14 +137,51 @@ service cloud.firestore {
         // schools/{schoolId} rule above and matches what this file's
         // own header comment already documented as the intent.
         allow read: if isSignedIn();
-        allow create: if isSchoolMember(schoolId) && request.resource.data.teacherId == request.auth.uid;
-        allow update: if isClassTeacher(schoolId, classId) || isSchoolAdmin(schoolId);
+        // `isSchoolAdmin(schoolId) ||` — an admin creates classes ON BEHALF
+        // OF a teacher from /admin/classes (pick a teacher, fill the form),
+        // so request.resource.data.teacherId is that teacher's uid, never
+        // the admin's. The self-only clause denied every one of those
+        // writes: the admin Create Class form could not create a class at
+        // all. Teachers still may only create classes they themselves
+        // teach.
+        allow create: if isSchoolAdmin(schoolId) ||
+          (isSchoolMember(schoolId) && request.resource.data.teacherId == request.auth.uid);
+        // The third clause exists for exactly one write: the
+        // `studentCount: increment(1)` that joinClassAsStudent issues
+        // right after a student creates their own membership doc.
+        //
+        // Without it the join was HALF-COMMITTED — the membership landed,
+        // then the counter bump was denied, the error propagated, and the
+        // student setup screen reported "We couldn't save your profile"
+        // for a profile that had in fact been saved. Every studentCount in
+        // the app also stayed frozen at 0 forever.
+        //
+        // It is deliberately the narrowest grant that fixes it: the writer
+        // must already be a member of THIS class, may touch only
+        // studentCount/updatedAt, and may only move the count up by one —
+        // so it cannot rename a class, reassign its teacher, or invent a
+        // roster size.
+        allow update: if isClassTeacher(schoolId, classId) || isSchoolAdmin(schoolId) ||
+          (isClassMember(schoolId, classId) &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['studentCount', 'updatedAt']) &&
+           request.resource.data.studentCount == resource.data.studentCount + 1);
         allow delete: if false;
 
         match /members/{memberId} {
-          allow read: if isSchoolMember(schoolId);
-          allow create: if isSelf(memberId) || isClassTeacher(schoolId, classId);
-          allow update: if isClassTeacher(schoolId, classId);
+          // `|| isSelf(memberId)` for the same circularity reason as
+          // schools/{id}/members above: a student joining by class code
+          // is not a school member yet, and joinClassAsStudent must be
+          // able to read its own membership doc to stay idempotent.
+          allow read: if isSchoolMember(schoolId) || isSelf(memberId);
+          // `|| isSchoolAdmin(schoolId)`: createClass writes the teacher's
+          // own membership row in the same transaction as the class. When
+          // an ADMIN creates the class, memberId is the teacher (not self)
+          // and isClassTeacher() does a get() on the class doc being
+          // created in that same transaction — which rules evaluate against
+          // pre-transaction data, so it reads null and denies. Admin
+          // membership is committed data, so this clause resolves.
+          allow create: if isSelf(memberId) || isClassTeacher(schoolId, classId) || isSchoolAdmin(schoolId);
+          allow update: if isClassTeacher(schoolId, classId) || isSchoolAdmin(schoolId);
           allow delete: if isClassTeacher(schoolId, classId) || isSchoolAdmin(schoolId);
         }
       }
@@ -166,7 +211,25 @@ service cloud.firestore {
           // The owning student may update their own submission status;
           // the class teacher may grade it; the seeding write on
           // assignment creation happens from the teacher's own request.
-          allow create: if isClassTeacher(schoolId, get(/databases/$(database)/documents/schools/$(schoolId)/assignments/$(assignmentId)).data.classId) || isSchoolAdmin(schoolId);
+          // The third clause covers a student who joined the class AFTER
+          // this assignment was created: createAssignment seeds one
+          // pending row per student enrolled AT THAT MOMENT, so a later
+          // joiner has no row, and "mark as submitted" is a create for
+          // them, not an update. Without this they could never hand
+          // anything in — the update rule below only ever sees a document
+          // that doesn't exist.
+          //
+          // Constrained so it stays a student submitting their OWN work:
+          // the row must be about themself, they must be a member of the
+          // class the assignment belongs to, its classId must match the
+          // assignment's real classId (not a class of their choosing),
+          // and it may not arrive carrying a grade.
+          allow create: if isClassTeacher(schoolId, get(/databases/$(database)/documents/schools/$(schoolId)/assignments/$(assignmentId)).data.classId) ||
+            isSchoolAdmin(schoolId) ||
+            (isSelf(request.resource.data.studentId) &&
+             request.resource.data.classId == get(/databases/$(database)/documents/schools/$(schoolId)/assignments/$(assignmentId)).data.classId &&
+             isClassMember(schoolId, request.resource.data.classId) &&
+             !('grade' in request.resource.data));
           // The student's own update path (markSubmission in
           // assignment-service.ts) only ever touches status/submittedAt,
           // but the rule itself didn't stop a raw client write from also
@@ -345,6 +408,34 @@ service cloud.firestore {
       }
     }
 
+    // ---------------- classes (collection group) ----------------
+    // NOT a duplicate of the schools/{schoolId}/classes rule above, and
+    // not redundant with it.
+    //
+    // A collectionGroup() query is only ever authorised by a rule whose
+    // path uses a recursive wildcard. A rule anchored at a fixed prefix
+    // (/schools/{schoolId}/classes/{classId}) applies to reads of that
+    // exact path and to queries scoped to that one subcollection — it
+    // does NOT apply to a query across every "classes" collection in the
+    // database.
+    //
+    // services/class-service.ts resolves join codes with
+    //   collectionGroup(db, "classes").where("code", "==", ...)
+    // in two places: getClassByCode (the entire Student Join flow) and
+    // the uniqueness scan inside createClass (the Teacher Create Class
+    // flow). Both were denied with permission-denied — so a student
+    // could never join a class, and a teacher could never create one.
+    // firestore.indexes.json already declared the COLLECTION_GROUP index
+    // these queries need; only the matching rule was missing.
+    //
+    // The grant is identical to the per-school rule (`isSignedIn()`, no
+    // more), so this widens nothing: class documents carry no PII and
+    // must be resolvable by code before the reader has any membership,
+    // which is the whole point of a join code.
+    match /{path=**}/classes/{classId} {
+      allow read: if isSignedIn();
+    }
+
     // ---------------- teachers ----------------
     match /teachers/{userId} {
       // Self, or a fellow member of the same school — same reasoning
@@ -353,7 +444,17 @@ service cloud.firestore {
       // school's TeacherProfile exists anywhere in this app).
       allow read: if isSelf(userId) || (resource.data.schoolId is string && isSchoolMember(resource.data.schoolId));
       allow create: if isSelf(userId);
-      allow update: if isSelf(userId);
+      // Second clause: attachClassToTeacher() appends to the teacher's
+      // denormalized classIds after a class is created, and when an ADMIN
+      // creates the class that write targets someone else's document —
+      // denied under isSelf-only, which left the teacher's own AI context
+      // and class count missing a class they had just been assigned.
+      //
+      // Scoped to that one field. An admin may not rewrite a teacher's
+      // subject, department, or schoolId through this path.
+      allow update: if isSelf(userId) ||
+        (isSchoolAdmin(resource.data.schoolId) &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['classIds', 'updatedAt']));
       allow delete: if false;
     }
 

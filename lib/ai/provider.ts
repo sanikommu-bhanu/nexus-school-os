@@ -15,6 +15,12 @@ export type AiErrorCategory =
   | "network"
   | "invalid_response"
   | "model_unavailable"
+  // Google returned 503 UNAVAILABLE — the model is busy, nothing is
+  // wrong with the key or the request. Kept separate from "unknown"
+  // because the two need opposite reactions: this one just needs a
+  // retry, and reporting it as a generic failure makes a healthy,
+  // correctly-configured setup look broken.
+  | "overloaded"
   | "unknown";
 
 export class AiProviderError extends Error {
@@ -75,14 +81,57 @@ export interface AIProvider {
 // falls back to the next one on 404/model-unavailable, so a account
 // that doesn't have access to the newest model degrades gracefully
 // instead of hard-failing the whole AI screen.
-const MODEL_CANDIDATES = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-1.5-flash"] as const;
+// Verified against the live API — the previous list (gemini-2.5-flash,
+// gemini-2.5-flash-lite, gemini-1.5-flash) now returns 404 "no longer
+// available to new users" for every entry, so every AI call in the app
+// fell through all three candidates and surfaced as "model_unavailable".
+// `gemini-flash-latest` is last on purpose: it's a moving alias, useful
+// as a backstop but not something to pin behaviour to.
+// Override with GEMINI_MODELS (comma-separated) without a code change.
+const DEFAULT_MODEL_CANDIDATES = ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-flash-latest"];
+
+const MODEL_CANDIDATES: string[] = (process.env.GEMINI_MODELS ?? "")
+  .split(",")
+  .map((m) => m.trim())
+  .filter(Boolean);
+
+function modelCandidates(): string[] {
+  return MODEL_CANDIDATES.length ? MODEL_CANDIDATES : DEFAULT_MODEL_CANDIDATES;
+}
 
 const DEFAULT_TIMEOUT_MS = 12_000;
+
+// These are thinking models: left alone they spend the whole
+// maxOutputTokens budget on internal thoughts and return a candidate
+// with NO content and finishReason MAX_TOKENS. A 200-token answer
+// budget produced an empty reply every time. Thinking buys nothing here
+// — the model is only rephrasing facts it was handed — so the budget
+// goes to zero and every token is spent on the actual answer.
+// (thinkingLevel:"low" was tested and still consumed the budget;
+// thinkingBudget:0 is the setting that works.)
+const NO_THINKING = { thinkingBudget: 0 } as const;
 
 function withTimeout(ms: number): { signal: AbortSignal; cancel: () => void } {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ms);
   return { signal: controller.signal, cancel: () => clearTimeout(timer) };
+}
+
+/**
+ * Pulls the answer text out of a candidate.
+ *
+ * Not `parts[0].text`: a response can carry several parts, and thinking
+ * models may put a `thought` part first — indexing position 0 would
+ * return the model's scratchpad, or undefined, instead of the answer.
+ */
+function extractText(candidate: any): string {
+  const parts = candidate?.content?.parts;
+  if (!Array.isArray(parts)) return "";
+  return parts
+    .filter((p: any) => !p?.thought && typeof p?.text === "string")
+    .map((p: any) => p.text)
+    .join("")
+    .trim();
 }
 
 export class GeminiProvider implements AIProvider {
@@ -105,7 +154,7 @@ export class GeminiProvider implements AIProvider {
 
     let lastErr: AiProviderError | null = null;
 
-    for (const model of MODEL_CANDIDATES) {
+    for (const model of modelCandidates()) {
       const { signal, cancel } = withTimeout(DEFAULT_TIMEOUT_MS);
       try {
         const res = await fetch(
@@ -119,6 +168,7 @@ export class GeminiProvider implements AIProvider {
               generationConfig: {
                 temperature: req.temperature ?? 0.3,
                 maxOutputTokens: req.maxOutputTokens ?? 300,
+                thinkingConfig: NO_THINKING,
                 ...(req.jsonMode ? { responseMimeType: "application/json" } : {}),
               },
             }),
@@ -137,25 +187,39 @@ export class GeminiProvider implements AIProvider {
           continue;
         }
         if (!res.ok) {
-          lastErr = new AiProviderError("unknown", `Gemini request failed (${res.status}) on ${model}`, res.status >= 500);
+          lastErr =
+            res.status === 503
+              ? new AiProviderError("overloaded", `${model} is busy (503 UNAVAILABLE)`, true)
+              : new AiProviderError("unknown", `Gemini request failed (${res.status}) on ${model}`, res.status >= 500);
           continue;
         }
 
         const data = await res.json();
         const candidate = data?.candidates?.[0];
-        const text: string | undefined = candidate?.content?.parts?.[0]?.text;
+        const text = extractText(candidate);
         const finishReason = candidate?.finishReason;
 
         if (!text) {
           if (finishReason === "SAFETY" || finishReason === "RECITATION") {
             throw new AiProviderError("invalid_response", `Gemini declined to answer (${finishReason})`);
           }
+          if (finishReason === "MAX_TOKENS") {
+            // Named separately from a generic empty response: this one is
+            // our own budget being too small, not the model misbehaving,
+            // and it is the failure that silently emptied every answer
+            // before thinkingBudget was pinned to 0.
+            lastErr = new AiProviderError(
+              "invalid_response",
+              `${model} hit the output token limit before producing an answer`
+            );
+            continue;
+          }
           lastErr = new AiProviderError("invalid_response", `No text in Gemini response from ${model}`);
           continue;
         }
 
         return {
-          text: text.trim(),
+          text,
           model,
           usage: {
             promptTokens: data?.usageMetadata?.promptTokenCount,
@@ -187,7 +251,7 @@ export class GeminiProvider implements AIProvider {
     // Document understanding needs more headroom than a chat reply
     // (a school policy or question paper can run several pages) and a
     // longer timeout since multimodal calls are slower than text-only.
-    for (const model of MODEL_CANDIDATES) {
+    for (const model of modelCandidates()) {
       const { signal, cancel } = withTimeout(25_000);
       try {
         const res = await fetch(
@@ -209,6 +273,7 @@ export class GeminiProvider implements AIProvider {
               generationConfig: {
                 temperature: 0.1,
                 maxOutputTokens: 2000,
+                thinkingConfig: NO_THINKING,
                 responseMimeType: "application/json",
               },
             }),
@@ -225,25 +290,35 @@ export class GeminiProvider implements AIProvider {
           continue;
         }
         if (!res.ok) {
-          lastErr = new AiProviderError("unknown", `Gemini request failed (${res.status}) on ${model}`, res.status >= 500);
+          lastErr =
+            res.status === 503
+              ? new AiProviderError("overloaded", `${model} is busy (503 UNAVAILABLE)`, true)
+              : new AiProviderError("unknown", `Gemini request failed (${res.status}) on ${model}`, res.status >= 500);
           continue;
         }
 
         const data = await res.json();
         const candidate = data?.candidates?.[0];
-        const text: string | undefined = candidate?.content?.parts?.[0]?.text;
+        const text = extractText(candidate);
         const finishReason = candidate?.finishReason;
 
         if (!text) {
           if (finishReason === "SAFETY" || finishReason === "RECITATION") {
             throw new AiProviderError("invalid_response", `Gemini declined to analyze this document (${finishReason})`);
           }
+          if (finishReason === "MAX_TOKENS") {
+            lastErr = new AiProviderError(
+              "invalid_response",
+              `${model} hit the output token limit before finishing this document`
+            );
+            continue;
+          }
           lastErr = new AiProviderError("invalid_response", `No text in Gemini response from ${model}`);
           continue;
         }
 
         return {
-          text: text.trim(),
+          text,
           model,
           usage: {
             promptTokens: data?.usageMetadata?.promptTokenCount,

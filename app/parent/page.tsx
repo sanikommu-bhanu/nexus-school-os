@@ -9,11 +9,12 @@ import { Avatar } from "@/components/ui/Avatar";
 import { GlassSurface } from "@/components/ui/GlassSurface";
 import { SectionHeader } from "@/components/ui/MetricCard";
 import { ListRow } from "@/components/ui/ListRow";
-import { LoadingState, EmptyState } from "@/components/ui/States";
+import { LoadingState, EmptyState, ErrorState } from "@/components/ui/States";
 import { MessagesBell } from "@/components/shell/MessagesBell";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { useSelectedChild } from "@/hooks/useSelectedChild";
 import { getChildSnapshots, type ChildSnapshot } from "@/services/parent-view-service";
+import { ensureParentSchoolId } from "@/services/parent-link-service";
 import { getSchoolAnnouncements } from "@/services/announcement-service";
 import { getOrCreateConversation } from "@/services/messaging-service";
 import { getFeeStructuresForClass, getPaymentsForStudent, summarizeStudentFees, type StudentFeeSummary } from "@/services/fee-service";
@@ -22,11 +23,12 @@ import type { Announcement } from "@/types";
 import { ChevronDown, Megaphone, MessageCircle, IndianRupee, TrendingDown, TrendingUp } from "lucide-react";
 
 export default function ParentPage() {
-  const { profile } = useAuthUser();
+  const { profile, refresh } = useAuthUser();
   const router = useRouter();
   const [children, setChildren] = useState<ChildSnapshot[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [messaging, setMessaging] = useState(false);
   const [messageError, setMessageError] = useState<string | null>(null);
   const [feeSummary, setFeeSummary] = useState<StudentFeeSummary | null>(null);
@@ -35,11 +37,33 @@ export default function ParentPage() {
   useEffect(() => {
     if (!profile?.id) return;
     (async () => {
-      const snapshots = await getChildSnapshots(profile.id);
-      setChildren(snapshots);
-      if (snapshots.length > 0 && !selectedChildId) setSelectedChildId(snapshots[0].studentId);
-      if (profile.schoolId) setAnnouncements(await getSchoolAnnouncements(profile.schoolId, 3));
-      setLoading(false);
+      try {
+        // Repair path for accounts linked before schoolId was written to
+        // the parent's own profile. Everything on this screen except the
+        // child snapshots is gated on profile.schoolId, so without this
+        // those parents see a permanently half-empty dashboard. refresh()
+        // re-reads the profile, which re-runs this effect with the id
+        // present and fills the rest in.
+        if (!profile.schoolId) {
+          const healed = await ensureParentSchoolId(profile.id);
+          if (healed) {
+            await refresh();
+            return;
+          }
+        }
+
+        const snapshots = await getChildSnapshots(profile.id);
+        setChildren(snapshots);
+        if (snapshots.length > 0 && !selectedChildId) setSelectedChildId(snapshots[0].studentId);
+        if (profile.schoolId) setAnnouncements(await getSchoolAnnouncements(profile.schoolId, 3));
+      } catch (err) {
+        // Without this, a rejected read left `loading` true forever and
+        // the screen sat on "Loading your children's data…" with nothing
+        // explaining why.
+        setLoadError(err instanceof Error ? err.message : "We couldn't load your children's data.");
+      } finally {
+        setLoading(false);
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile?.id, profile?.schoolId]);
@@ -87,6 +111,8 @@ export default function ParentPage() {
 
         {loading ? (
           <LoadingState message="Loading your children's data…" />
+        ) : loadError ? (
+          <ErrorState message={loadError} onRetry={() => window.location.reload()} />
         ) : children.length === 0 ? (
           <EmptyState title="No children connected yet" message="Use a parent-connect code or QR from setup to link your child." />
         ) : (

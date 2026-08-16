@@ -36,7 +36,16 @@ function CreateSchoolForm() {
       router.push(`/setup/admin/success?schoolId=${school.id}`);
     } catch (err) {
       setStatus("error");
-      setError("We couldn't create your school. Please try again.");
+      // createSchool distinguishes "the school doc failed" from "the
+      // school exists but granting you admin on it failed", and the
+      // second message names the school id needed to recover. Collapsing
+      // both into "please try again" threw that away and invited the
+      // admin to create a duplicate school.
+      setError(
+        err instanceof Error
+          ? `We couldn't create your school: ${err.message}`
+          : "We couldn't create your school. Please try again."
+      );
     }
   };
 

@@ -5,46 +5,52 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { auth, isFirebaseConfigured } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { getCurrentUserProfile } from "@/services/user-service";
 
 export default function SplashScreen() {
   const router = useRouter();
 
   useEffect(() => {
-    // Hold the splash for a short beat so the reveal animation is felt,
-    // then route based on real auth + profile state.
-    const timer = setTimeout(async () => {
-      if (!isFirebaseConfigured || !auth) {
-        router.replace("/onboarding");
-        return;
-      }
+    let cancelled = false;
 
-      const unsubscribe = onAuthStateChanged(auth, async (user) => {
-        unsubscribe();
+    // The auth check and the logo animation run CONCURRENTLY.
+    //
+    // This used to be strictly serial: wait a fixed 1600ms, and only THEN
+    // subscribe to auth and read the profile — so every cold open cost
+    // 1600ms + a round-trip to Firebase Auth + a Firestore read before
+    // anything moved. That is a large, entirely avoidable chunk of the
+    // "app feels laggy" complaint. Now the network work starts on mount
+    // and the splash holds for whichever finishes last, so the logo beat
+    // is free rather than additive.
+    const minimumHold = new Promise<void>((resolve) => setTimeout(resolve, 900));
 
-        if (!user) {
-          router.replace("/onboarding");
-          return;
-        }
+    const destination = (async (): Promise<string> => {
+      if (!isFirebaseConfigured || !auth) return "/onboarding";
 
-        const profile = await getCurrentUserProfile(user.uid);
-
-        if (!profile) {
-          // Authenticated but never finished onboarding.
-          router.replace("/role");
-          return;
-        }
-
-        if (!profile.onboardingComplete) {
-          router.replace(`/setup/${profile.role}`);
-          return;
-        }
-
-        router.replace(`/${profile.role}`);
+      const user = await new Promise<import("firebase/auth").User | null>((resolve) => {
+        const unsubscribe = onAuthStateChanged(auth!, (u) => {
+          unsubscribe();
+          resolve(u);
+        });
       });
-    }, 1600);
 
-    return () => clearTimeout(timer);
+      // NOT signed in => a new visitor: logo, then the intro carousel,
+      // which leads on to role selection and the rest of the flow.
+      if (!user) return "/onboarding";
+
+      // SIGNED IN => logo, then straight to role selection. /role resumes
+      // them correctly from there: a complete profile goes to their
+      // dashboard, an incomplete one to /setup/{role}, and a missing one
+      // gets written. Returning users never see the intro carousel again.
+      return "/role";
+    })();
+
+    Promise.all([minimumHold, destination]).then(([, to]) => {
+      if (!cancelled) router.replace(to);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
   return (

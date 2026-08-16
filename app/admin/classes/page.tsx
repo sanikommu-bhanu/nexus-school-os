@@ -65,7 +65,11 @@ function AdminClassesScreen() {
         section: form.section,
         subject: form.subject,
       });
-      await attachClassToTeacher(form.teacherId, created.id);
+      // Non-fatal for the same reason as the teacher's own create flow:
+      // the class already exists and classes.teacherId is the real link.
+      await attachClassToTeacher(form.teacherId, created.id).catch((err) =>
+        console.warn("Class created but couldn't attach it to the teacher profile", err)
+      );
       setShowForm(false);
       setForm({ grade: "", section: "", subject: "", teacherId: "" });
       router.replace("/admin/classes");

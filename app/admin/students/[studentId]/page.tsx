@@ -7,7 +7,7 @@ import { AppShell } from "@/components/shell/AppShell";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Avatar } from "@/components/ui/Avatar";
 import { GlassSurface } from "@/components/ui/GlassSurface";
-import { LoadingState, EmptyState } from "@/components/ui/States";
+import { LoadingState, EmptyState, ErrorState } from "@/components/ui/States";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { getStudentProfile } from "@/services/student-service";
 import { getUserProfiles } from "@/services/user-service";
@@ -23,6 +23,7 @@ export default function AdminStudentDetailPage() {
   const [cls, setCls] = useState<ClassEntity | null>(null);
   const [attendance, setAttendance] = useState<ReturnType<typeof summarizeAttendance> | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!profile?.schoolId || !studentId) return;
@@ -39,7 +40,13 @@ export default function AdminStudentDetailPage() {
       setCls(c);
       setAttendance(summarizeAttendance(records));
       setLoading(false);
-    })();
+    })().catch((err) => {
+      // A rejected read used to escape unhandled, leaving
+      // `loading` true forever: the screen showed its spinner
+      // permanently with the real reason only in the console.
+      setLoadError(err instanceof Error ? err.message : "Something went wrong loading this screen.");
+      setLoading(false);
+    });
   }, [profile?.schoolId, studentId]);
 
   return (
@@ -48,6 +55,8 @@ export default function AdminStudentDetailPage() {
         <PageHeader title="Student Profile" />
         {loading ? (
           <LoadingState />
+        ) : loadError ? (
+          <ErrorState message={loadError} onRetry={() => window.location.reload()} />
         ) : !student || !user ? (
           <EmptyState title="Student not found" />
         ) : (

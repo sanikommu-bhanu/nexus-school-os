@@ -10,6 +10,7 @@ import { doc, setDoc, collection, query, getDocs, serverTimestamp, orderBy, limi
 import { getSchoolMembers } from "@/services/school-service";
 import { getClassMembers } from "@/services/class-service";
 import { createNotification } from "@/services/notification-service";
+import { stripUndefined } from "@/lib/utils";
 import type { Announcement, AnnouncementAudience, AnnouncementPriority } from "@/types";
 
 export async function createAnnouncement(
@@ -30,10 +31,12 @@ export async function createAnnouncement(
     id: ref.id,
     schoolId,
     createdBy,
-    ...data,
+    // classId is absent on school-wide announcements and attachmentURL on
+    // most of them; Firestore rejects an explicit undefined outright.
+    ...stripUndefined(data),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-  };
+  } as Announcement;
   await setDoc(ref, { ...announcement, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
 
   // Fan out notifications to the actual resolved audience only.

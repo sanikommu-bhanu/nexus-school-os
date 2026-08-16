@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { ensureUserProfile } from "@/services/user-service";
+import { publishAuthProfile } from "@/hooks/useAuthUser";
 import type { Role } from "@/types";
 
 const ROLES: { role: Role; label: string; description: string; icon: typeof ShieldCheck }[] = [
@@ -52,6 +53,7 @@ export default function RoleSelectionPage() {
         photoURL: user.photoURL ?? undefined,
         role: selected,
       });
+      publishAuthProfile(created);
       router.replace(`/setup/${created.role}`);
     } catch (err) {
       setError(

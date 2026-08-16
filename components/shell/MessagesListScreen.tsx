@@ -6,7 +6,7 @@ import { AuthGuard } from "@/components/AuthGuard";
 import { AppShell } from "@/components/shell/AppShell";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Avatar } from "@/components/ui/Avatar";
-import { LoadingState, EmptyState } from "@/components/ui/States";
+import { LoadingState, EmptyState, ErrorState } from "@/components/ui/States";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { subscribeToConversations, otherParticipant } from "@/services/messaging-service";
 import { getUserProfiles } from "@/services/user-service";
@@ -18,15 +18,35 @@ export function MessagesListScreen({ role, newHref }: { role: Role; newHref?: st
   const [conversations, setConversations] = useState<ConversationMeta[]>([]);
   const [users, setUsers] = useState<Map<string, UserProfile>>(new Map());
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!profile?.schoolId || !profile.id) return;
-    const unsub = subscribeToConversations(profile.schoolId, profile.id, async (items) => {
-      setConversations(items);
-      const otherIds = items.map((c) => otherParticipant(c, profile.id)).filter(Boolean) as string[];
-      setUsers(await getUserProfiles(otherIds));
-      setLoading(false);
-    });
+    const unsub = subscribeToConversations(
+      profile.schoolId,
+      profile.id,
+      async (items) => {
+        setConversations(items);
+        try {
+          // Resolving the other participant's name is a separate read that
+          // can fail on its own (a participant whose profile isn't
+          // cross-readable). It used to be awaited before setLoading(false)
+          // with no guard, so that failure hung the whole screen — even
+          // though the conversation list itself had already arrived. Names
+          // are cosmetic here; the thread list is not.
+          const otherIds = items.map((c) => otherParticipant(c, profile.id)).filter(Boolean) as string[];
+          setUsers(await getUserProfiles(otherIds));
+        } catch {
+          // fall through — rows render as "Contact"
+        } finally {
+          setLoading(false);
+        }
+      },
+      (err) => {
+        setLoadError(err.message);
+        setLoading(false);
+      }
+    );
     return unsub;
   }, [profile?.schoolId, profile?.id]);
 
@@ -46,6 +66,8 @@ export function MessagesListScreen({ role, newHref }: { role: Role; newHref?: st
         />
         {loading ? (
           <LoadingState />
+        ) : loadError ? (
+          <ErrorState message={loadError} onRetry={() => window.location.reload()} />
         ) : conversations.length === 0 ? (
           <EmptyState
             icon={<MessageCircle className="h-5.5 w-5.5" />}

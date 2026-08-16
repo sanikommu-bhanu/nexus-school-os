@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { GlassSurface } from "@/components/ui/GlassSurface";
 import { Badge } from "@/components/ui/Badge";
 import { ListRow } from "@/components/ui/ListRow";
-import { LoadingState, EmptyState } from "@/components/ui/States";
+import { LoadingState, EmptyState, ErrorState } from "@/components/ui/States";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { useSelectedChild } from "@/hooks/useSelectedChild";
 import { getChildSnapshots, type ChildSnapshot } from "@/services/parent-view-service";
@@ -21,6 +21,7 @@ export default function ParentFeesPage() {
   const [child, setChild] = useState<ChildSnapshot | null>(null);
   const [summary, setSummary] = useState<StudentFeeSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!profile?.id || !profile.schoolId) return;
@@ -36,7 +37,13 @@ export default function ParentFeesPage() {
         setSummary(summarizeStudentFees(structures, payments));
       }
       setLoading(false);
-    })();
+    })().catch((err) => {
+      // A rejected read used to escape unhandled, leaving
+      // `loading` true forever: the screen showed its spinner
+      // permanently with the real reason only in the console.
+      setLoadError(err instanceof Error ? err.message : "Something went wrong loading this screen.");
+      setLoading(false);
+    });
   }, [profile?.id, profile?.schoolId, selectedChildId]);
 
   return (
@@ -46,6 +53,8 @@ export default function ParentFeesPage() {
 
         {loading ? (
           <LoadingState />
+        ) : loadError ? (
+          <ErrorState message={loadError} onRetry={() => window.location.reload()} />
         ) : !summary || summary.structures.length === 0 ? (
           <EmptyState icon={<IndianRupee className="h-5.5 w-5.5" />} title="No fees set up yet" message="The school hasn't published any fee structures for this class." />
         ) : (

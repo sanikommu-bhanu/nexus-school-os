@@ -9,7 +9,7 @@ import { MessagesBell } from "@/components/shell/MessagesBell";
 import { NotificationBell } from "@/components/shell/NotificationBell";
 import { SectionHeader } from "@/components/ui/MetricCard";
 import { ListRow, InsightCard } from "@/components/ui/ListRow";
-import { LoadingState, EmptyState } from "@/components/ui/States";
+import { LoadingState, EmptyState, ErrorState } from "@/components/ui/States";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { getClassesForTeacher } from "@/services/class-service";
 import { getTimetableForTeacher, groupByDay } from "@/services/timetable-service";
@@ -27,6 +27,7 @@ export default function TeacherPage() {
   const [todaySlots, setTodaySlots] = useState<TimetableSlot[]>([]);
   const [pendingAttendance, setPendingAttendance] = useState<ClassEntity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!profile?.schoolId) return;
@@ -47,7 +48,13 @@ export default function TeacherPage() {
       }
       setPendingAttendance(pending);
       setLoading(false);
-    })();
+    })().catch((err) => {
+      // A rejected read used to escape unhandled, leaving
+      // `loading` true forever: the screen showed its spinner
+      // permanently with the real reason only in the console.
+      setLoadError(err instanceof Error ? err.message : "Something went wrong loading this screen.");
+      setLoading(false);
+    });
   }, [profile?.schoolId, profile?.id]);
 
   return (
@@ -67,6 +74,8 @@ export default function TeacherPage() {
 
         {loading ? (
           <LoadingState message="Loading your day…" />
+        ) : loadError ? (
+          <ErrorState message={loadError} onRetry={() => window.location.reload()} />
         ) : (
           <>
             <SectionHeader title="Today's Classes" />

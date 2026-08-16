@@ -20,6 +20,7 @@ import {
   serverTimestamp,
   orderBy,
 } from "firebase/firestore";
+import { stripUndefined } from "@/lib/utils";
 import type { FeePayment, FeePaymentMethod, FeeStructure } from "@/types";
 
 export async function createFeeStructure(
@@ -33,10 +34,15 @@ export async function createFeeStructure(
     id: ref.id,
     schoolId,
     createdBy,
-    ...data,
+    ...stripUndefined(data),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-  };
+  } as FeeStructure;
+  // A school-wide structure legitimately has NO classId, and the admin
+  // fees screen sends `classId: undefined` for exactly that case — the
+  // dropdown's default. Writing it unstripped threw "Unsupported field
+  // value: undefined", so the most common fee structure could never be
+  // created.
   await setDoc(ref, { ...structure, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
   return structure;
 }
@@ -65,10 +71,11 @@ export async function recordFeePayment(
     schoolId,
     recordedBy,
     paidAt: new Date().toISOString(),
-    ...data,
+    // `note` is optional and blank on the admin's record-payment form.
+    ...stripUndefined(data),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-  };
+  } as FeePayment;
   await setDoc(ref, { ...payment, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
   return payment;
 }

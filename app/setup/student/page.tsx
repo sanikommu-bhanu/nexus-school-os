@@ -36,25 +36,37 @@ function JoinClassContent() {
     setChecking(true);
     setError(null);
 
-    const code = extractCode(raw);
-    const classEntity = await getClassByCode(code);
+    // Both lookups hit Firestore and can reject (offline, or a rules
+    // deployment that doesn't yet authorise the collectionGroup query
+    // behind getClassByCode). Unhandled, the rejection escaped and
+    // `checking` was never cleared: the screen sat on "Checking code…"
+    // permanently, with the real reason visible only in the console.
+    try {
+      const code = extractCode(raw);
+      const classEntity = await getClassByCode(code);
 
-    if (!classEntity) {
-      setError("That class code isn't valid. Ask your teacher for the correct code.");
+      if (!classEntity) {
+        setError("That class code isn't valid. Ask your teacher for the correct code.");
+        return;
+      }
+
+      const school = await getSchoolById(classEntity.schoolId);
+
+      if (!school) {
+        setError("We couldn't find that class's school.");
+        return;
+      }
+
+      setPreview({ classEntity, school, teacherName: classEntity.teacherName ?? "Teacher" });
+    } catch (err) {
+      setError(
+        (err as { code?: string })?.code === "permission-denied"
+          ? "We couldn't look up that class code. If this keeps happening, ask your school admin to confirm the latest security rules are deployed."
+          : `We couldn't check that code: ${err instanceof Error ? err.message : "unknown error"}`
+      );
+    } finally {
       setChecking(false);
-      return;
     }
-
-    const school = await getSchoolById(classEntity.schoolId);
-
-    if (!school) {
-      setError("We couldn't find that class's school.");
-      setChecking(false);
-      return;
-    }
-
-    setPreview({ classEntity, school, teacherName: classEntity.teacherName ?? "Teacher" });
-    setChecking(false);
   };
 
   const handleConfirm = () => {

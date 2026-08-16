@@ -7,7 +7,7 @@ import { AppShell } from "@/components/shell/AppShell";
 import { Avatar } from "@/components/ui/Avatar";
 import { MetricCard, SectionHeader } from "@/components/ui/MetricCard";
 import { InsightCard } from "@/components/ui/ListRow";
-import { LoadingState } from "@/components/ui/States";
+import { LoadingState, ErrorState } from "@/components/ui/States";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { getSchoolMembers } from "@/services/school-service";
 import { getClassesForSchool } from "@/services/class-service";
@@ -37,52 +37,60 @@ export default function AdminPage() {
   const [lowAttendance, setLowAttendance] = useState<ClassInsight[]>([]);
   const [activity, setActivity] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!profile?.schoolId) return;
     let cancelled = false;
 
     (async () => {
-      const [members, classes] = await Promise.all([
-        getSchoolMembers(profile.schoolId!),
-        getClassesForSchool(profile.schoolId!),
-      ]);
+      try {
+        const [members, classes] = await Promise.all([
+          getSchoolMembers(profile.schoolId!),
+          getClassesForSchool(profile.schoolId!),
+        ]);
 
-      const since = new Date(Date.now() - 14 * 24 * 3600 * 1000).toISOString().slice(0, 10);
-      const perClass = await Promise.all(
-        classes.map(async (c) => {
-          const records = await getAttendanceForClassRange(profile.schoolId!, c.id, since);
-          const today = records.filter((r) => r.date === todayISO());
-          return { class: c, today: summarizeAttendance(today), week: summarizeAttendance(records), trend: compareAttendanceWindows(records) };
-        })
-      );
+        const since = new Date(Date.now() - 14 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+        const perClass = await Promise.all(
+          classes.map(async (c) => {
+            const records = await getAttendanceForClassRange(profile.schoolId!, c.id, since);
+            const today = records.filter((r) => r.date === todayISO());
+            return { class: c, today: summarizeAttendance(today), week: summarizeAttendance(records), trend: compareAttendanceWindows(records) };
+          })
+        );
 
-      if (cancelled) return;
+        if (cancelled) return;
 
-      const todayTotal = perClass.reduce((acc, p) => acc + p.today.total, 0);
-      const todayPresent = perClass.reduce((acc, p) => acc + p.today.present + p.today.late * 0.5, 0);
+        const todayTotal = perClass.reduce((acc, p) => acc + p.today.total, 0);
+        const todayPresent = perClass.reduce((acc, p) => acc + p.today.present + p.today.late * 0.5, 0);
 
-      setPulse({
-        students: members.filter((m) => m.role === "student").length,
-        teachers: members.filter((m) => m.role === "teacher").length,
-        classes: classes.length,
-        attendanceToday: todayTotal > 0 ? Math.round((todayPresent / todayTotal) * 100) : 0,
-      });
+        setPulse({
+          students: members.filter((m) => m.role === "student").length,
+          teachers: members.filter((m) => m.role === "teacher").length,
+          classes: classes.length,
+          attendanceToday: todayTotal > 0 ? Math.round((todayPresent / todayTotal) * 100) : 0,
+        });
 
-      setLowAttendance(
-        perClass
-          .filter((p) => (p.trend.recentPct ?? p.week.percentPresent) > 0 && (p.trend.recentPct ?? p.week.percentPresent) < 85 && p.week.total > 0)
-          .map((p) => ({
-            classId: p.class.id,
-            className: p.class.name,
-            percent: p.trend.recentPct ?? p.week.percentPresent,
-            trend: p.trend,
-          }))
-          .sort((a, b) => a.percent - b.percent)
-          .slice(0, 3)
-      );
+        setLowAttendance(
+          perClass
+            .filter((p) => (p.trend.recentPct ?? p.week.percentPresent) > 0 && (p.trend.recentPct ?? p.week.percentPresent) < 85 && p.week.total > 0)
+            .map((p) => ({
+              classId: p.class.id,
+              className: p.class.name,
+              percent: p.trend.recentPct ?? p.week.percentPresent,
+              trend: p.trend,
+            }))
+            .sort((a, b) => a.percent - b.percent)
+            .slice(0, 3)
+        );
 
-      setLoading(false);
+      } catch (err) {
+        // Without this, a rejected read left `loading` true forever and
+        // the admin sat on "Loading your school's pulse…" indefinitely.
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Couldn't load your school's pulse.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     })();
 
     const unsub = subscribeToNotifications(profile.schoolId, profile.id, setActivity);
@@ -103,8 +111,12 @@ export default function AdminPage() {
           <Avatar name={profile?.fullName ?? "Admin"} src={profile?.photoURL} size="lg" />
         </div>
 
-        {loading || !pulse ? (
+        {loading ? (
           <LoadingState message="Loading your school's pulse…" />
+        ) : loadError ? (
+          <ErrorState message={loadError} onRetry={() => window.location.reload()} />
+        ) : !pulse ? (
+          <ErrorState message="Couldn't load your school's pulse." onRetry={() => window.location.reload()} />
         ) : (
           <>
             <SectionHeader title="School Pulse" />

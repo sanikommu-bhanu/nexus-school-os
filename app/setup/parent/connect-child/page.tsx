@@ -34,17 +34,23 @@ function ConnectChildContent() {
     setChecking(true);
     setError(null);
 
-    const code = extractCode(raw);
-    const child = await resolveParentLinkCode(code);
+    // Unhandled, a rejected lookup left `checking` true forever — the
+    // screen stayed on "Checking code…" with no error and no way back.
+    try {
+      const code = extractCode(raw);
+      const child = await resolveParentLinkCode(code);
 
-    if (!child) {
-      setError("That code isn't valid. Ask your child for the correct code.");
+      if (!child) {
+        setError("That code isn't valid. Ask your child for the correct code.");
+        return;
+      }
+
+      setPreview(child);
+    } catch (err) {
+      setError(`We couldn't check that code: ${err instanceof Error ? err.message : "unknown error"}`);
+    } finally {
       setChecking(false);
-      return;
     }
-
-    setPreview(child);
-    setChecking(false);
   };
 
   const handleConfirm = async () => {
@@ -54,8 +60,12 @@ function ConnectChildContent() {
     try {
       await linkParentToStudent(user.uid, preview.studentId, preview.schoolId, relationship);
       router.push(`/setup/parent/connect-child/success?name=${encodeURIComponent(preview.name)}&className=${encodeURIComponent(preview.className)}`);
-    } catch {
-      setError("We couldn't connect you. Please try again.");
+    } catch (err) {
+      // Naming the real failure matters here: linking also grants school
+      // membership and stamps schoolId on the profile, and if that half
+      // fails the parent lands on a dashboard with no data. A bare
+      // "please try again" gave them nothing to act on.
+      setError(`We couldn't connect you: ${err instanceof Error ? err.message : "unknown error"}`);
       setLinking(false);
     }
   };

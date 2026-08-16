@@ -18,6 +18,7 @@ import {
   runTransaction,
 } from "firebase/firestore";
 import { generateClassCode } from "@/lib/utils";
+import { addSchoolMember } from "@/services/school-service";
 import type { ClassEntity, ClassMember } from "@/types";
 
 export async function createClass(
@@ -47,12 +48,36 @@ export async function createClass(
   // Uniqueness scan runs BEFORE the transaction — `getDocs` is not a
   // transactional read, so inside the callback it bought no atomicity
   // while re-running on every retry (same fix as createSchool).
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const existing = await getDocs(
-      query(collectionGroup(database, "classes"), where("code", "==", code))
+  //
+  // It is also STRICTLY BEST-EFFORT, and the try/catch is the point.
+  //
+  // This is a collectionGroup query, which Firestore only authorises via
+  // a rule whose path uses a recursive wildcard. Until that rule is
+  // deployed the query returns permission-denied — and because the
+  // rejection used to propagate, a purely advisory duplicate check
+  // aborted the entire transaction below and NO TEACHER COULD CREATE A
+  // CLASS AT ALL. The actual class write needs none of this: it is
+  // authorised by plain school membership.
+  //
+  // Losing the scan costs a vanishingly small chance of a duplicate code
+  // (the random suffix is 4 chars over a 32-symbol alphabet, scoped to
+  // one grade/section/subject). Losing class creation costs the teacher
+  // the entire product. Degrade, don't fail.
+  try {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const existing = await getDocs(
+        query(collectionGroup(database, "classes"), where("code", "==", code))
+      );
+      if (existing.empty) break;
+      code = generateClassCode(data.grade, data.section, data.subject);
+    }
+  } catch (err) {
+    console.warn(
+      "Class-code uniqueness check couldn't run; proceeding with the generated code. " +
+        "If this is permission-denied, deploy firestore.rules — the collectionGroup rule for /{path=**}/classes/{classId} " +
+        "is also what the student join-by-code flow depends on.",
+      err
     );
-    if (existing.empty) break;
-    code = generateClassCode(data.grade, data.section, data.subject);
   }
 
   await runTransaction(database, async (tx) => {
@@ -108,9 +133,38 @@ export async function joinClassAsStudent(
   studentId: string
 ): Promise<{ alreadyJoined: boolean }> {
   if (!db) throw new Error("Firebase isn't configured.");
+
+  // FIRST, and not optional: joining a class means joining that class's
+  // school. Nothing in the student flow did this — teachers get school
+  // membership from their join-by-code step and parents get it at link
+  // time, but a student joining by CLASS code was only ever written into
+  // schools/{id}/classes/{id}/members, never schools/{id}/members.
+  //
+  // Almost every school-scoped rule in firestore.rules is
+  // `isSchoolMember(schoolId)`, so that omission silently denied the
+  // student's entire app: attendance, timetable, assignments,
+  // announcements, documents, fee structures and RAG knowledge chunks all
+  // returned permission-denied. The screens were built correctly and
+  // simply had nothing they were allowed to read — every student
+  // dashboard rendered as empty or errored out.
+  //
+  // Idempotent, and safe against the self-assigned-admin hole the members
+  // create rule guards: the role written here is always "student".
+  await addSchoolMember(schoolId, studentId, "student");
+
   const memberRef = doc(db, "schools", schoolId, "classes", classId, "members", studentId);
-  const existing = await getDoc(memberRef);
-  if (existing.exists()) return { alreadyJoined: true };
+
+  // Same reasoning as addSchoolMember's existence check in
+  // school-service.ts: this read is an idempotency optimisation, and a
+  // permission-denied here IS the "not a member yet" answer, not a
+  // failure. Letting it throw would block exactly the students who need
+  // to join.
+  try {
+    const existing = await getDoc(memberRef);
+    if (existing.exists()) return { alreadyJoined: true };
+  } catch (err) {
+    if ((err as { code?: string })?.code !== "permission-denied") throw err;
+  }
 
   await setDoc(memberRef, {
     userId: studentId,
@@ -121,10 +175,21 @@ export async function joinClassAsStudent(
     updatedAt: serverTimestamp(),
   });
 
-  await updateDoc(doc(db, "schools", schoolId, "classes", classId), {
-    studentCount: increment(1),
-    updatedAt: serverTimestamp(),
-  });
+  // The membership above is what actually enrols the student; this is a
+  // denormalized display counter. Ordering matters and so does the catch:
+  // if this write is rejected (an older firestore.rules deployment gates
+  // class updates on isClassTeacher/isSchoolAdmin only), the student IS
+  // enrolled, and throwing here would surface as "We couldn't save your
+  // profile" on a setup step that had already fully succeeded — stranding
+  // them mid-onboarding over a counter.
+  try {
+    await updateDoc(doc(db, "schools", schoolId, "classes", classId), {
+      studentCount: increment(1),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (err) {
+    console.warn("Joined class but couldn't update studentCount", err);
+  }
 
   return { alreadyJoined: false };
 }

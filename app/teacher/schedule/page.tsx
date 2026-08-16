@@ -5,7 +5,7 @@ import { AuthGuard } from "@/components/AuthGuard";
 import { AppShell } from "@/components/shell/AppShell";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { ListRow } from "@/components/ui/ListRow";
-import { LoadingState, EmptyState } from "@/components/ui/States";
+import { LoadingState, EmptyState, ErrorState } from "@/components/ui/States";
 import { cn } from "@/lib/utils";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { getTimetableForTeacher, groupByDay } from "@/services/timetable-service";
@@ -22,6 +22,7 @@ export default function TeacherSchedulePage() {
   const [classes, setClasses] = useState<ClassEntity[]>([]);
   const [day, setDay] = useState<Weekday>(WEEKDAYS[0]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!profile?.schoolId) return;
@@ -35,7 +36,13 @@ export default function TeacherSchedulePage() {
       const todayIdx = new Date().getDay();
       setDay(WEEKDAYS[Math.max(0, todayIdx - 1) % WEEKDAYS.length]);
       setLoading(false);
-    })();
+    })().catch((err) => {
+      // A rejected read used to escape unhandled, leaving
+      // `loading` true forever: the screen showed its spinner
+      // permanently with the real reason only in the console.
+      setLoadError(err instanceof Error ? err.message : "Something went wrong loading this screen.");
+      setLoading(false);
+    });
   }, [profile?.schoolId, profile?.id]);
 
   const daySlots = grouped[day] ?? [];
@@ -58,6 +65,8 @@ export default function TeacherSchedulePage() {
 
         {loading ? (
           <LoadingState />
+        ) : loadError ? (
+          <ErrorState message={loadError} onRetry={() => window.location.reload()} />
         ) : daySlots.length === 0 ? (
           <EmptyState icon={<CalendarClock className="h-5.5 w-5.5" />} title="Nothing scheduled" message="No classes on this day yet." />
         ) : (

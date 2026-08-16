@@ -13,6 +13,7 @@ import {
   signInWithEmailAndPassword,
 } from "firebase/auth";
 import { ensureUserProfile, getCurrentUserProfile } from "@/services/user-service";
+import { publishAuthProfile } from "@/hooks/useAuthUser";
 import type { Role } from "@/types";
 
 type Mode = "login" | "signup";
@@ -109,6 +110,10 @@ function EmailAuthScreen() {
           email,
           role,
         });
+        // See app/auth/page.tsx: the store must learn about this profile
+        // explicitly, because the auth event that populated it fired
+        // before the document existed.
+        publishAuthProfile(profile);
         setStatus("success");
         setTimeout(() => router.replace(`/setup/${profile.role}`), 900);
       } else {
@@ -124,6 +129,7 @@ function EmailAuthScreen() {
           return;
         }
 
+        publishAuthProfile(profile);
         setStatus("success");
         setTimeout(
           () => router.replace(profile.onboardingComplete ? `/${profile.role}` : `/setup/${profile.role}`),
