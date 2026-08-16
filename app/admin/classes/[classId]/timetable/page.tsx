@@ -245,7 +245,7 @@ export default function AdminTimetablePage() {
                                 • {c}
                               </p>
                             ))}
-                            <p className="text-[11px] text-ink-faint">You can still apply, but review this carefully — NEXUS AI won't resolve conflicts automatically.</p>
+                            <p className="text-[11px] text-ink-faint">You can still apply, but review this carefully — NEXUS AI won&apos;t resolve conflicts automatically.</p>
                           </div>
                         ) : (
                           <div className="flex items-center gap-2 rounded-xl bg-success/10 p-3 text-success">

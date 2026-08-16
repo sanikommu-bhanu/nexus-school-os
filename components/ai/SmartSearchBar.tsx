@@ -102,7 +102,7 @@ export function SmartSearchBar({ ctx }: { ctx: AiContext }) {
               ) : !result ? (
                 <p className="py-12 text-center text-sm text-ink-faint">Try a student name, a class, a document title, or a question.</p>
               ) : result.kind === "empty" ? (
-                <p className="py-12 text-center text-sm text-ink-faint">No matches found for "{query}".</p>
+                <p className="py-12 text-center text-sm text-ink-faint">No matches found for &quot;{query}&quot;.</p>
               ) : (
                 <div className="flex flex-col gap-3">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-accent-soft">{KIND_LABEL[result.kind]}</p>

@@ -75,7 +75,7 @@ export default function StudentFeesPage() {
 
             <p className="mt-6 rounded-2xl glass-surface p-3.5 text-xs text-ink-muted">
               <Receipt className="mr-1.5 inline h-3.5 w-3.5" />
-              Fees are collected at the school office and recorded by your admin — this screen reflects the school's official record, updated automatically.
+              Fees are collected at the school office and recorded by your admin — this screen reflects the school&apos;s official record, updated automatically.
             </p>
           </>
         )}

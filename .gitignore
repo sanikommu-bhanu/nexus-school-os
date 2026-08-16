@@ -25,6 +25,10 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# firebase emulator debug output
+firestore-debug.log
+firestore-debug.*.log
+
 # local env files
 .env
 .env*.local

@@ -229,7 +229,7 @@ export function DocumentPipeline({ schoolId, uploadedBy, documentType, classId, 
               ) : (
                 <div className="flex items-start gap-2 rounded-xl bg-accent/10 p-3">
                   <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-accent-soft" />
-                  <p className="text-xs text-ink-muted">Review what NEXUS AI understood before it's saved — edit anything that's off.</p>
+                  <p className="text-xs text-ink-muted">Review what NEXUS AI understood before it&apos;s saved — edit anything that&apos;s off.</p>
                 </div>
               )}
 
