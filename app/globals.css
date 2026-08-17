@@ -57,6 +57,17 @@
     @apply bg-action/30 text-white;
   }
 
+  /* Tailwind Preflight sets ::placeholder to #9ca3af, a cool grey that
+     belongs to no part of this palette. Every field in the app already
+     overrides it, but pinning it here means a future input that forgets
+     to cannot introduce an off-palette colour. (Preflight's other
+     default, the #e5e7eb border, is already overridden by the `*`
+     border-glass-border rule above.) */
+  ::placeholder {
+    @apply text-ink-faint;
+    opacity: 1;
+  }
+
   /* Glass borders are low-contrast by nature, so the default UA focus
      ring is effectively invisible on these surfaces. */
   :focus-visible {
@@ -139,9 +150,9 @@
       /* deeper rose, upper right */
         radial-gradient(80% 48% at 88% 8%, rgba(200, 95, 128, 0.2), transparent 58%),
       /* lavender counter-light, mid left */
-        radial-gradient(72% 46% at 3% 36%, rgba(184, 166, 232, 0.17), transparent 60%),
+        radial-gradient(72% 46% at 3% 36%, rgba(255, 179, 199, 0.15), transparent 60%),
       /* plum depth, lower right */
-        radial-gradient(85% 50% at 92% 78%, rgba(140, 96, 130, 0.18), transparent 62%),
+        radial-gradient(85% 50% at 92% 78%, rgba(164, 78, 108, 0.20), transparent 62%),
       /* warm floor glow */
         radial-gradient(120% 45% at 40% 108%, rgba(255, 179, 199, 0.1), transparent 60%),
       /* vignette so the edges hold the content in */
@@ -166,10 +177,10 @@
     background-image:
       radial-gradient(circle at 12% 18%, rgba(255, 199, 216, 0.16) 0%, transparent 11%),
       radial-gradient(circle at 78% 12%, rgba(237, 127, 160, 0.13) 0%, transparent 8%),
-      radial-gradient(circle at 88% 44%, rgba(214, 204, 245, 0.12) 0%, transparent 9%),
+      radial-gradient(circle at 88% 44%, rgba(255, 213, 224, 0.13) 0%, transparent 9%),
       radial-gradient(circle at 24% 62%, rgba(255, 179, 199, 0.1) 0%, transparent 7%),
       radial-gradient(circle at 62% 84%, rgba(255, 199, 216, 0.12) 0%, transparent 10%),
-      radial-gradient(circle at 44% 32%, rgba(214, 204, 245, 0.08) 0%, transparent 6%);
+      radial-gradient(circle at 44% 32%, rgba(255, 234, 241, 0.09) 0%, transparent 6%);
     /* Deliberately NO `filter: blur()`. A filter on a viewport-sized
        layer forces re-rasterization, and re-rasterizing every frame of
        an animation is expensive. These radial gradients are already
@@ -369,7 +380,7 @@
        doing behind. This is the line whose absence made entered text
        invisible - the UA `field` colour (white) was showing through a
        translucent gradient, under white text. */
-    background-color: rgba(26, 18, 25, 0.36);
+    background-color: rgba(26, 18, 25, 0.32);
     background-image: linear-gradient(
       158deg,
       rgba(255, 244, 248, 0.09) 0%,
