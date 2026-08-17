@@ -63,6 +63,24 @@ jobs:
           NEXT_PUBLIC_FIREBASE_APP_ID: "1:000000000000:web:0000000000000000000000"
         run: npm run build
 
+      - name: Integration smoke (boots the production server)
+        # Catches what unit tests structurally cannot: a broken import,
+        # a bad dynamic segment, a server component throwing at render,
+        # or a route removed by accident. All of those typecheck and
+        # lint cleanly and only fail when a page is actually requested.
+        env:
+          NEXT_PUBLIC_FIREBASE_API_KEY: ci-dummy-api-key
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: nexus-school-os.firebaseapp.com
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: nexus-school-os
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: nexus-school-os.appspot.com
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "000000000000"
+          NEXT_PUBLIC_FIREBASE_APP_ID: "1:000000000000:web:0000000000000000000000"
+          SMOKE_BASE_URL: http://localhost:3000
+        run: |
+          npx next start -p 3000 &
+          npx wait-on http://localhost:3000 --timeout 60000
+          npm run test:smoke
+
   rules:
     name: Firestore security rules
     runs-on: ubuntu-latest

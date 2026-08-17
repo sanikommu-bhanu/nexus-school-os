@@ -14,6 +14,7 @@
     "check:emulator": "node scripts/check-emulator-prereqs.mjs",
     "test:workload": "node --experimental-strip-types tests/workload.test.ts",
     "test:capture": "node --experimental-strip-types tests/attendance-capture.test.ts",
+    "test:smoke": "node tests/smoke.test.mjs",
     "test:rules": "node tests/rules.test.mjs",
     "test:rules:ci": "npm run check:emulator && firebase emulators:exec --only firestore --project nexus-school-os \"node tests/rules.test.mjs\""
   },
@@ -37,6 +38,7 @@
     "@types/react-dom": "18.3.0",
     "autoprefixer": "10.4.19",
     "cross-env": "^7.0.3",
+    "wait-on": "^7.2.0",
     "eslint": "8.57.0",
     "eslint-config-next": "14.2.5",
     "postcss": "8.4.40",
