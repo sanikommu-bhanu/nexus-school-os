@@ -7,6 +7,10 @@
     @apply border-glass-border;
   }
   html {
+    /* Stops iOS silently inflating text when the phone is rotated to
+       landscape. Without it, type sizes change on rotation only. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
     /* Tells the UA to render its own form internals dark: the
        <input type="date"> picker and its indicator, number spinners,
        scrollbars and dropdown arrows. Without it those are drawn with
@@ -17,6 +21,37 @@
   body {
     @apply bg-base-950 text-ink antialiased;
     height: 100%;
+  }
+
+  body {
+    /* Android/Chrome paints a grey flash box over every tapped
+       element by default, which makes a glass UI look cheap. */
+    -webkit-tap-highlight-color: transparent;
+    /* Stops the whole page rubber-banding past its bounds — the thing
+       that makes an installed PWA feel like a web page rather than an
+       app. */
+    overscroll-behavior-y: none;
+  }
+
+  /* Long unbroken strings — join codes like NX10A-MATH-42, emails,
+     Cloudinary URLs — must wrap rather than force the page wider than
+     the viewport, which is the usual cause of stray horizontal scroll
+     on a phone. */
+  body {
+    overflow-wrap: break-word;
+  }
+
+  /* iOS Safari ZOOMS THE PAGE IN whenever a focused field has a
+     font-size below 16px. The design scale puts inputs at 13px, so
+     every tap into a field on an iPhone was yanking the viewport.
+     Raising them to 16px on touch devices only is the standard fix —
+     pointer-based so it never affects the desktop type scale. */
+  @media (pointer: coarse) {
+    input,
+    textarea,
+    select {
+      font-size: 16px;
+    }
   }
   ::selection {
     @apply bg-action/30 text-white;
@@ -334,7 +369,7 @@
        doing behind. This is the line whose absence made entered text
        invisible - the UA `field` colour (white) was showing through a
        translucent gradient, under white text. */
-    background-color: rgba(26, 18, 25, 0.42);
+    background-color: rgba(26, 18, 25, 0.36);
     background-image: linear-gradient(
       158deg,
       rgba(255, 244, 248, 0.09) 0%,
@@ -375,18 +410,30 @@
      so the space either side of the column is lit background rather
      than dead grey — a centred app shell, not a cramped one. */
   .screen-frame {
-    @apply mx-auto flex min-h-dvh w-full max-w-[480px] flex-col px-6;
+    @apply mx-auto flex min-h-dvh w-full max-w-[480px] flex-col;
+    /* max() keeps the designed gutter on every ordinary phone and only
+       grows it where the hardware demands: a notch in landscape, or a
+       rounded display corner. */
+    padding-left: max(1.5rem, env(safe-area-inset-left));
+    padding-right: max(1.5rem, env(safe-area-inset-right));
+    /* Keeps content clear of the status bar / notch when the PWA is
+       installed and runs without browser chrome. */
+    padding-top: env(safe-area-inset-top);
   }
 
   @media (min-width: 768px) {
     .screen-frame {
-      @apply max-w-[600px] px-8;
+      @apply max-w-[600px];
+      padding-left: max(2rem, env(safe-area-inset-left));
+      padding-right: max(2rem, env(safe-area-inset-right));
     }
   }
 
   @media (min-width: 1024px) {
     .screen-frame {
-      @apply max-w-[680px] px-10;
+      @apply max-w-[680px];
+      padding-left: max(2.5rem, env(safe-area-inset-left));
+      padding-right: max(2.5rem, env(safe-area-inset-right));
     }
   }
 }
