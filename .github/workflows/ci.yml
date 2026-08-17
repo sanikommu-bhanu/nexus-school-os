@@ -47,6 +47,9 @@ jobs:
       - name: Workload / reallocation tests
         run: npm run test:workload
 
+      - name: Attendance capture tests
+        run: npm run test:capture
+
       - name: Production build
         # The Firebase client reads NEXT_PUBLIC_* at build time. These are
         # throwaway values so the build is hermetic and no real project
