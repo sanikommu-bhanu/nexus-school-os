@@ -3,7 +3,14 @@
 //   npm run test:timetable
 // Runs on Node's native type stripping; no emulator, no network.
 // ============================================================
-import { findConflicts, slotsOverlap, toMinutes, type SlotLike } from "../lib/timetable-conflicts.ts";
+import {
+  findConflicts,
+  slotsOverlap,
+  toMinutes,
+  slotDuration,
+  suggestAlternativeSlots,
+  type SlotLike,
+} from "../lib/timetable-conflicts.ts";
 
 let pass = 0;
 const failures: string[] = [];
@@ -191,6 +198,117 @@ check(
     [slot({ id: "a", room: "R1" }), slot({ id: "b", period: 2, startTime: "10:00", endTime: "11:00" })]
   ),
   []
+);
+
+
+// ============================================================
+// Conflict RESOLUTION (suggestAlternativeSlots)
+// ============================================================
+console.log("\n\x1b[1msuggestAlternativeSlots\x1b[0m");
+
+const PERIOD_TIMES: Record<number, string> = { 1: "09:00", 2: "10:00", 3: "11:00", 4: "12:00" };
+const GRID = { days: ["MO", "TU"], periods: [1, 2, 3, 4], periodStartTimes: PERIOD_TIMES };
+
+check("slotDuration reads the candidate's own length", slotDuration(slot({})), 60);
+check("slotDuration is null when times are unusable", slotDuration(slot({ startTime: "bad" })), null);
+
+// The teacher is busy MO p1; everything else is free.
+const busyMondayP1 = [slot({ id: "s1", period: 1, startTime: "09:00", endTime: "10:00" })];
+
+check(
+  "prefers the nearest period on the SAME day",
+  suggestAlternativeSlots(slot({ id: undefined, period: 1 }), busyMondayP1, { ...GRID, limit: 1 }).map(
+    (s) => `${s.day} p${s.period} ${s.startTime}-${s.endTime}`
+  ),
+  ["MO p2 10:00-11:00"]
+);
+
+check(
+  "suggestion length matches the requested duration",
+  suggestAlternativeSlots(
+    slot({ id: undefined, period: 1, startTime: "09:00", endTime: "09:45" }),
+    busyMondayP1,
+    { ...GRID, limit: 1 }
+  ).map((s) => `${s.startTime}-${s.endTime}`),
+  ["10:00-10:45"]
+);
+
+check(
+  "never suggests the placement the caller already has",
+  suggestAlternativeSlots(slot({ id: undefined, period: 1 }), busyMondayP1, GRID).some(
+    (s) => s.day === "MO" && s.period === 1
+  ),
+  false
+);
+
+// Every Monday period is taken by this teacher -> must roll to Tuesday.
+const mondayFull = [1, 2, 3, 4].map((p) =>
+  slot({ id: `s${p}`, period: p, startTime: PERIOD_TIMES[p], endTime: `${10 + p - 1}:00` })
+);
+
+check(
+  "rolls to the next day when the whole day is full",
+  suggestAlternativeSlots(slot({ id: undefined, period: 1 }), mondayFull, { ...GRID, limit: 1 }).map((s) => s.day),
+  ["TU"]
+);
+
+check(
+  "returns nothing when the entire grid is blocked",
+  suggestAlternativeSlots(
+    slot({ id: undefined, period: 1 }),
+    [
+      ...mondayFull,
+      ...[1, 2, 3, 4].map((p) =>
+        slot({ id: `t${p}`, day: "TU", period: p, startTime: PERIOD_TIMES[p], endTime: `${10 + p - 1}:00` })
+      ),
+    ],
+    GRID
+  ),
+  []
+);
+
+check(
+  "a free grid excludes only the current placement",
+  // 2 days x 4 periods = 8 cells, minus the slot's own MO p1.
+  suggestAlternativeSlots(slot({ id: undefined, period: 1 }), [], { ...GRID, limit: 20 }).length,
+  7
+);
+
+check(
+  "results are capped by the default limit",
+  suggestAlternativeSlots(slot({ id: undefined, period: 1 }), [], GRID).length,
+  5
+);
+
+check(
+  "editing a slot ignores itself via excludeId",
+  suggestAlternativeSlots(slot({ id: "s1", period: 2 }), busyMondayP1, { ...GRID, limit: 1 }, "s1").map(
+    (s) => `${s.day} p${s.period}`
+  ),
+  ["MO p1"]
+);
+
+check(
+  "a room clash also removes a candidate cell",
+  suggestAlternativeSlots(
+    slot({ id: undefined, teacherId: KHAN, classId: C9B, room: "R1", period: 1 }),
+    [slot({ id: "r1", teacherId: RAO, classId: C10A, room: "R1", period: 2, startTime: "10:00", endTime: "11:00" })],
+    { ...GRID, limit: 1 }
+  ).map((s) => `p${s.period}`),
+  ["p3"]
+);
+
+// The contract that matters: resolution can never contradict detection.
+check(
+  "every suggestion passes findConflicts",
+  suggestAlternativeSlots(slot({ id: undefined, period: 1 }), busyMondayP1, GRID).every(
+    (s) =>
+      findConflicts(
+        { ...slot({ id: undefined }), day: s.day, period: s.period, startTime: s.startTime, endTime: s.endTime },
+        busyMondayP1
+      ).length === 0
+  ),
+  true
 );
 
 console.log(
