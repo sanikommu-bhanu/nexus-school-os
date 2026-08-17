@@ -6,71 +6,446 @@
   * {
     @apply border-glass-border;
   }
+  html {
+    /* Stops iOS silently inflating text when the phone is rotated to
+       landscape. Without it, type sizes change on rotation only. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    /* Tells the UA to render its own form internals dark: the
+       <input type="date"> picker and its indicator, number spinners,
+       scrollbars and dropdown arrows. Without it those are drawn with
+       light-mode defaults and vanish against this theme. */
+    color-scheme: dark;
+  }
   html,
   body {
     @apply bg-base-950 text-ink antialiased;
     height: 100%;
   }
+
+  body {
+    /* Android/Chrome paints a grey flash box over every tapped
+       element by default, which makes a glass UI look cheap. */
+    -webkit-tap-highlight-color: transparent;
+    /* Stops the whole page rubber-banding past its bounds — the thing
+       that makes an installed PWA feel like a web page rather than an
+       app. */
+    overscroll-behavior-y: none;
+  }
+
+  /* Long unbroken strings — join codes like NX10A-MATH-42, emails,
+     Cloudinary URLs — must wrap rather than force the page wider than
+     the viewport, which is the usual cause of stray horizontal scroll
+     on a phone. */
+  body {
+    overflow-wrap: break-word;
+  }
+
+  /* iOS Safari ZOOMS THE PAGE IN whenever a focused field has a
+     font-size below 16px. The design scale puts inputs at 13px, so
+     every tap into a field on an iPhone was yanking the viewport.
+     Raising them to 16px on touch devices only is the standard fix —
+     pointer-based so it never affects the desktop type scale. */
+  @media (pointer: coarse) {
+    input,
+    textarea,
+    select {
+      font-size: 16px;
+    }
+  }
   ::selection {
     @apply bg-action/30 text-white;
+  }
+
+  /* Tailwind Preflight sets ::placeholder to #9ca3af, a cool grey that
+     belongs to no part of this palette. Every field in the app already
+     overrides it, but pinning it here means a future input that forgets
+     to cannot introduce an off-palette colour. (Preflight's other
+     default, the #e5e7eb border, is already overridden by the `*`
+     border-glass-border rule above.) */
+  ::placeholder {
+    @apply text-ink-faint;
+    opacity: 1;
+  }
+
+  /* Glass borders are low-contrast by nature, so the default UA focus
+     ring is effectively invisible on these surfaces. */
+  :focus-visible {
+    outline: 2px solid rgba(237, 127, 160, 0.8);
+    outline-offset: 2px;
+    border-radius: 0.5rem;
+  }
+
+  /* A native <select> renders its open list with OS chrome. Against a
+     dark theme the light `text-ink` the closed control needs would
+     leave the options as near-white on near-white, so pin both. */
+  select.input-glass option,
+  select.input-glass optgroup {
+    background-color: #241c24;
+    color: #fbf4f7;
+  }
+
+  /* Chrome paints autofilled fields with its own pale-yellow/blue
+     background through an internal style that `background-color`
+     cannot override — so an autofilled email or password would sit as
+     near-white text on a pale field. A large inset box-shadow is the
+     only reliable way to repaint it, and `-webkit-text-fill-color`
+     is what actually controls the glyph colour in that state. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  textarea:-webkit-autofill,
+  select:-webkit-autofill {
+    -webkit-box-shadow: 0 0 0 1000px #241c24 inset;
+    box-shadow: 0 0 0 1000px #241c24 inset;
+    -webkit-text-fill-color: #fbf4f7;
+    caret-color: #fbf4f7;
+    transition: background-color 9999s ease-in-out 0s;
+  }
+}
+
+/* Declared here, NOT in tailwind.config.ts: Tailwind only emits a theme
+   @keyframes block when it finds a matching `animate-*` utility while
+   scanning ts/tsx — it never scans CSS. These are driven from the raw
+   `animation:` property below, so a theme-defined keyframe would
+   silently never be emitted and the motion would not run. */
+@keyframes bloom-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(2%, -1.5%, 0) scale(1.06);
   }
 }
 
 @layer components {
-  /* ---------------------------------------------------------
-     App shell: the atmospheric nebula background used behind
-     every screen. Fixed, layered radial gradients — no image
-     dependency, so it never breaks if external assets fail.
-  --------------------------------------------------------- */
+  /* =========================================================
+     THE ATMOSPHERE
+     A layered blush environment built entirely from CSS
+     gradients — no image download, no WebGL, no layout cost.
+
+       layer 1  deep plum ground + blush bloom fields
+       layer 2  drifting bokeh                     (::before)
+       layer 3  grain + a diagonal light leak      (::after)
+
+     60/30/10 lives here: the blush is LIGHT falling on a warm
+     neutral ground, never a pink fill. Every layer is
+     low-opacity and sits behind content.
+  ========================================================= */
   .nexus-atmosphere {
     position: relative;
+    /* `isolation` makes this a stacking context so the two pseudo-layers
+       can sit at z-index:-1 — above this element's own background but
+       behind all page content. Without it they would be positioned
+       elements painting OVER the (non-positioned) content and hazing the
+       text. Done this way it needs no z-index on any child, so the fixed
+       bottom nav and every screen's markup stay untouched. */
+    isolation: isolate;
     min-height: 100dvh;
-    background:
-      radial-gradient(120% 60% at 50% -10%, rgba(139, 124, 246, 0.22), transparent 60%),
-      radial-gradient(90% 50% at 85% 15%, rgba(255, 62, 113, 0.16), transparent 55%),
-      radial-gradient(100% 60% at 10% 100%, rgba(139, 124, 246, 0.14), transparent 60%),
-      #0a0a11;
+    background-color: #120e13;
+    background-image:
+      /* blush key light, top-centre */
+      radial-gradient(115% 55% at 50% -8%, rgba(237, 127, 160, 0.26), transparent 62%),
+      /* deeper rose, upper right */
+        radial-gradient(80% 48% at 88% 8%, rgba(200, 95, 128, 0.2), transparent 58%),
+      /* lavender counter-light, mid left */
+        radial-gradient(72% 46% at 3% 36%, rgba(255, 179, 199, 0.15), transparent 60%),
+      /* plum depth, lower right */
+        radial-gradient(85% 50% at 92% 78%, rgba(164, 78, 108, 0.20), transparent 62%),
+      /* warm floor glow */
+        radial-gradient(120% 45% at 40% 108%, rgba(255, 179, 199, 0.1), transparent 60%),
+      /* vignette so the edges hold the content in */
+        radial-gradient(140% 100% at 50% 50%, transparent 42%, rgba(12, 8, 12, 0.72) 100%);
+    /* NO `background-attachment: fixed` here. It forces the whole
+       viewport-sized gradient stack to repaint on every scroll frame
+       and is one of the most reliable ways to make a mobile page
+       stutter. The element is already min-height:100dvh, so it buys
+       nothing. */
     overflow: hidden;
   }
 
+  /* Layer 2 — bokeh. Large, heavily-feathered circles that read as
+     out-of-focus light. This is the ONLY animated layer in the app;
+     one slow compositor-only drift is enough to feel alive. */
   .nexus-atmosphere::before {
     content: "";
     position: absolute;
+    inset: -12%;
+    z-index: -1;
+    pointer-events: none;
+    background-image:
+      radial-gradient(circle at 12% 18%, rgba(255, 199, 216, 0.16) 0%, transparent 11%),
+      radial-gradient(circle at 78% 12%, rgba(237, 127, 160, 0.13) 0%, transparent 8%),
+      radial-gradient(circle at 88% 44%, rgba(255, 213, 224, 0.13) 0%, transparent 9%),
+      radial-gradient(circle at 24% 62%, rgba(255, 179, 199, 0.1) 0%, transparent 7%),
+      radial-gradient(circle at 62% 84%, rgba(255, 199, 216, 0.12) 0%, transparent 10%),
+      radial-gradient(circle at 44% 32%, rgba(255, 234, 241, 0.09) 0%, transparent 6%);
+    /* Deliberately NO `filter: blur()`. A filter on a viewport-sized
+       layer forces re-rasterization, and re-rasterizing every frame of
+       an animation is expensive. These radial gradients are already
+       fully feathered, so the blur was paying a large cost for an
+       effect that was practically invisible.
+       Without it this animation is a pure compositor transform. */
+    will-change: transform;
+    animation: bloom-drift 26s ease-in-out infinite;
+  }
+
+  /* Layer 3 — barely-there grain plus a diagonal light leak. The grain
+     is what stops large gradients banding on cheap panels. */
+  .nexus-atmosphere::after {
+    content: "";
+    position: absolute;
     inset: 0;
-    background-image: radial-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-    background-size: 3px 3px;
-    opacity: 0.5;
+    z-index: -1;
+    pointer-events: none;
+    background-image:
+      linear-gradient(118deg, transparent 38%, rgba(255, 222, 234, 0.05) 50%, transparent 62%),
+      radial-gradient(rgba(255, 255, 255, 0.028) 1px, transparent 1px);
+    background-size:
+      100% 100%,
+      3px 3px;
+    opacity: 0.72;
+    /* Static on purpose. This layer was also being animated, which
+       meant two full-viewport layers compositing every frame; drifting
+       1px grain is imperceptible and was pure cost. */
+  }
+
+  /* =========================================================
+     THE GLASS SYSTEM — four depth tiers.
+
+     Uniform opacity everywhere is the single biggest tell of
+     amateur glassmorphism, because depth is what makes glass
+     read as glass. These differ in tint, blur, border AND
+     shadow, so pick by the surface's ROLE on the screen:
+
+       faint     nested panels inside another card, quiet rows
+       surface   the default card (what screens already use)
+       elevated  the one hero surface on a screen
+       floating  detached: nav dock, modals, sheets
+
+     Every tier shares one light source:
+       top edge highlight  inset, catches the key light
+       inner bounce        inset bottom, warm blush reflection
+       frosted blur        backdrop-filter + saturate
+       ambient shadow      outer, grounds the card
+       light gradient      a real surface is never evenly lit
+
+     `saturate()` is the detail most people miss: it makes the
+     blush behind the glass GLOW through instead of turning grey.
+  ========================================================= */
+
+  /* SECONDARY */
+  .glass-faint {
+    /* Explicit: form controls do NOT default to a transparent
+       background the way a div does, so a tier that sets only
+       background-image would let the UA's `buttonface` / `field`
+       colour show through. .btn-ghost composes this onto a <button>. */
+    background-color: transparent;
+    background-image: linear-gradient(
+      158deg,
+      rgba(255, 244, 248, 0.06) 0%,
+      rgba(255, 244, 248, 0.025) 100%
+    );
+    border: 1px solid rgba(255, 240, 246, 0.08);
+    /* Lowest blur of the four tiers on purpose: this one is used for
+       repeated list rows, so its cost is multiplied by row count. */
+    backdrop-filter: blur(8px) saturate(130%);
+    -webkit-backdrop-filter: blur(8px) saturate(130%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 247, 251, 0.1),
+      0 2px 10px rgba(12, 8, 12, 0.22);
+  }
+
+  /* PRIMARY — the default card, used across ~44 screens. */
+  .glass-surface {
+    /* Explicit: form controls do NOT default to a transparent
+       background the way a div does, so a tier that sets only
+       background-image would let the UA's `buttonface` / `field`
+       colour show through. .btn-ghost composes this onto a <button>. */
+    background-color: transparent;
+    background-image: linear-gradient(
+      158deg,
+      rgba(255, 244, 248, 0.11) 0%,
+      rgba(255, 244, 248, 0.045) 45%,
+      rgba(255, 226, 238, 0.065) 100%
+    );
+    border: 1px solid rgba(255, 240, 246, 0.12);
+    backdrop-filter: blur(18px) saturate(150%);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 247, 251, 0.18),
+      inset 0 -12px 26px -18px rgba(237, 127, 160, 0.28),
+      0 8px 32px rgba(12, 8, 12, 0.45);
+  }
+
+  /* ELEVATED — the hero surface: QR panels, balances. */
+  .glass-elevated {
+    /* Explicit: form controls do NOT default to a transparent
+       background the way a div does, so a tier that sets only
+       background-image would let the UA's `buttonface` / `field`
+       colour show through. .btn-ghost composes this onto a <button>. */
+    background-color: transparent;
+    background-image: linear-gradient(
+      158deg,
+      rgba(255, 246, 250, 0.15) 0%,
+      rgba(255, 241, 246, 0.07) 46%,
+      rgba(255, 224, 236, 0.09) 100%
+    );
+    border: 1px solid rgba(255, 244, 249, 0.17);
+    backdrop-filter: blur(24px) saturate(160%);
+    -webkit-backdrop-filter: blur(24px) saturate(160%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 250, 252, 0.26),
+      inset 0 -16px 34px -20px rgba(237, 127, 160, 0.36),
+      0 16px 44px rgba(12, 8, 12, 0.48),
+      0 0 38px -12px rgba(237, 127, 160, 0.22);
+  }
+
+  /* FLOATING — detached from the page: nav dock, sheets, modals. */
+  .glass-floating {
+    /* Explicit: form controls do NOT default to a transparent
+       background the way a div does, so a tier that sets only
+       background-image would let the UA's `buttonface` / `field`
+       colour show through. .btn-ghost composes this onto a <button>. */
+    background-color: transparent;
+    background-image: linear-gradient(
+      158deg,
+      rgba(48, 34, 46, 0.74) 0%,
+      rgba(32, 22, 31, 0.66) 100%
+    );
+    border: 1px solid rgba(255, 240, 246, 0.14);
+    backdrop-filter: blur(28px) saturate(165%);
+    -webkit-backdrop-filter: blur(28px) saturate(165%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 247, 251, 0.2),
+      0 20px 56px rgba(12, 8, 12, 0.6);
+  }
+
+  /* Opt-in blush edge-glow. Reserve for selected / important surfaces. */
+  .glass-glow-rose {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 250, 252, 0.24),
+      inset 0 -16px 34px -20px rgba(237, 127, 160, 0.4),
+      0 12px 40px rgba(12, 8, 12, 0.46),
+      0 0 30px -8px rgba(237, 127, 160, 0.4);
+    border-color: rgba(255, 179, 199, 0.36);
+  }
+
+  /* =========================================================
+     CONTROLS
+  ========================================================= */
+
+  /* Primary action. The ::after sheen is a static highlight across the
+     top half — light hitting a glossy pill. */
+  .btn-action {
+    position: relative;
+    overflow: hidden;
+    @apply inline-flex items-center justify-center gap-2 rounded-full
+      px-6 py-3.5 text-sm font-semibold text-white
+      transition-all duration-200
+      active:scale-[0.97] disabled:opacity-40 disabled:pointer-events-none;
+    background-image: linear-gradient(135deg, #ff9db8 0%, #ed7fa0 46%, #c85f80 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.34),
+      0 8px 24px rgba(237, 127, 160, 0.34);
+  }
+  .btn-action::after {
+    content: "";
+    position: absolute;
+    inset: 0 0 52% 0;
+    background: linear-gradient(to bottom, rgba(255, 255, 255, 0.22), transparent);
     pointer-events: none;
   }
-
-  /* Core glass surface */
-  .glass-surface {
-    @apply bg-glass border border-glass-border backdrop-blur-xl shadow-glass;
-  }
-
-  /* Primary action button */
-  .btn-action {
-    @apply inline-flex items-center justify-center gap-2 rounded-full
-      bg-gradient-to-r from-action to-action-dark
-      px-6 py-3.5 text-sm font-semibold text-white
-      shadow-glow-pink transition-transform duration-200
-      active:scale-[0.97] disabled:opacity-40 disabled:pointer-events-none;
+  .btn-action:active {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.26),
+      0 4px 14px rgba(237, 127, 160, 0.3);
   }
 
   .btn-ghost {
     @apply inline-flex items-center justify-center gap-2 rounded-full
       glass-surface px-6 py-3.5 text-sm font-medium text-ink
-      transition-transform duration-200 active:scale-[0.97];
+      transition-all duration-200 active:scale-[0.97]
+      disabled:opacity-40 disabled:pointer-events-none;
   }
 
+  /* Glass field. Focus lifts the tint, warms the border and adds a soft
+     blush halo — subtle, no hard ring. */
   .input-glass {
-    @apply w-full rounded-2xl glass-surface px-4 py-3.5 text-sm text-ink
-      placeholder:text-ink-faint outline-none
-      focus:border-accent/50 focus:ring-2 focus:ring-accent/20 transition-all;
+    @apply w-full rounded-2xl px-4 py-3.5 text-sm text-ink
+      placeholder:text-ink-faint outline-none transition-all duration-200;
+    /* A real tint, not `transparent`: an input must guarantee contrast
+       for the text being typed into it, whatever the atmosphere is
+       doing behind. This is the line whose absence made entered text
+       invisible - the UA `field` colour (white) was showing through a
+       translucent gradient, under white text. */
+    background-color: rgba(26, 18, 25, 0.32);
+    background-image: linear-gradient(
+      158deg,
+      rgba(255, 244, 248, 0.09) 0%,
+      rgba(255, 244, 248, 0.04) 100%
+    );
+    border: 1px solid rgba(255, 240, 246, 0.12);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    box-shadow: inset 0 1px 0 rgba(255, 247, 251, 0.12);
+  }
+  .input-glass:focus {
+    border-color: rgba(255, 154, 183, 0.58);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 247, 251, 0.16),
+      0 0 0 3px rgba(237, 127, 160, 0.15),
+      0 4px 18px -6px rgba(237, 127, 160, 0.34);
+  }
+  /* The field renders its own focus treatment — suppress the global
+     outline so the two don't double up. */
+  .input-glass:focus-visible {
+    outline: none;
   }
 
+  /* The app shell column.
+
+     Mobile is deliberately UNCHANGED at 480px — this is a
+     phone-first product and the touch layout is already right.
+
+     What changes is desktop. Locked at 480px the app rendered as a
+     phone-shaped sliver stranded in the middle of a laptop screen,
+     which is what "highly responsive" in the brief is really asking
+     about. The column widens in two steps to a comfortable reading
+     measure rather than stretching edge to edge: the screens stack in
+     a single column by design, and a 1400px-wide list row is worse
+     than a narrow one, not better.
+
+     The atmosphere is on <main> and already fills the whole viewport,
+     so the space either side of the column is lit background rather
+     than dead grey — a centred app shell, not a cramped one. */
   .screen-frame {
-    @apply mx-auto flex min-h-dvh w-full max-w-[480px] flex-col px-6;
+    @apply mx-auto flex min-h-dvh w-full max-w-[480px] flex-col;
+    /* max() keeps the designed gutter on every ordinary phone and only
+       grows it where the hardware demands: a notch in landscape, or a
+       rounded display corner. */
+    padding-left: max(1.5rem, env(safe-area-inset-left));
+    padding-right: max(1.5rem, env(safe-area-inset-right));
+    /* Keeps content clear of the status bar / notch when the PWA is
+       installed and runs without browser chrome. */
+    padding-top: env(safe-area-inset-top);
+  }
+
+  @media (min-width: 768px) {
+    .screen-frame {
+      @apply max-w-[600px];
+      padding-left: max(2rem, env(safe-area-inset-left));
+      padding-right: max(2rem, env(safe-area-inset-right));
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .screen-frame {
+      @apply max-w-[680px];
+      padding-left: max(2.5rem, env(safe-area-inset-left));
+      padding-right: max(2.5rem, env(safe-area-inset-right));
+    }
   }
 }
 
@@ -82,22 +457,30 @@
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
+
+  /* Blush gradient text for hero numerals and key headings. */
+  .text-gradient-rose {
+    background-image: linear-gradient(120deg, #fff5f8 0%, #ffb3c7 55%, #ed7fa0 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
 }
 
 /* ============================================================
  * Part 29-33: respect prefers-reduced-motion.
  *
- * This is a safety net for every CSS transition/animation in the app
- * (button active:scale, hover states, the .btn-* transition-transform
- * utilities, etc). It intentionally does NOT try to neutralize
- * framer-motion's JS-driven animations — those use inline transforms
- * updated via requestAnimationFrame, which a CSS rule cannot reach.
- * Every framer-motion usage in this codebase that plays anything
- * beyond a simple opacity fade instead calls the `useReducedMotion()`
- * hook directly and swaps in a zero-duration transition — see
- * components/ai/DocumentPipeline.tsx, ExplainableInsightCard.tsx,
- * SmartSearchBar.tsx, and app/admin/classes/[classId]/timetable/page.tsx
- * for the pattern.
+ * A safety net for every CSS transition/animation in the app (button
+ * active:scale, hover states, the .btn-* transitions, and the
+ * atmosphere's slow bloom drift). It intentionally does NOT try to
+ * neutralize framer-motion's JS-driven animations — those use inline
+ * transforms updated via requestAnimationFrame, which a CSS rule
+ * cannot reach. Every framer-motion usage in this codebase that plays
+ * anything beyond a simple opacity fade instead calls the
+ * `useReducedMotion()` hook directly and swaps in a zero-duration
+ * transition — see components/ai/DocumentPipeline.tsx,
+ * ExplainableInsightCard.tsx, SmartSearchBar.tsx, and
+ * app/admin/classes/[classId]/timetable/page.tsx for the pattern.
  * ============================================================ */
 @media (prefers-reduced-motion: reduce) {
   *,

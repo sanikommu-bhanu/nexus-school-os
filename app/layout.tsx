@@ -21,10 +21,15 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0A0A11",
+  themeColor: "#120E13",
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
+  // `maximumScale: 1` used to be set here, which disables pinch-zoom.
+  // That is a direct WCAG 2.1 SC 1.4.4 (Resize Text) failure: a
+  // low-vision user simply cannot magnify the page. It is a common
+  // copy-paste default that buys nothing — the layout below is
+  // responsive, so there is no zoom-induced breakage to prevent.
+  userScalable: true,
 };
 
 export default function RootLayout({
