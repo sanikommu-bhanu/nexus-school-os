@@ -15,10 +15,11 @@ import { useAuthUser } from "@/hooks/useAuthUser";
 import { getClassById } from "@/services/class-service";
 import { getTeachersForSchool } from "@/services/teacher-service";
 import { getUserProfiles } from "@/services/user-service";
-import { getTimetableForClass, createTimetableSlot, deleteTimetableSlot, detectConflicts, groupByDay } from "@/services/timetable-service";
+import { getTimetableForClass, createTimetableSlot, deleteTimetableSlot, detectConflicts, suggestConflictFreeSlots, groupByDay } from "@/services/timetable-service";
 import { WEEKDAYS } from "@/types";
 import type { ClassEntity, TimetableSlot, TeacherProfile, UserProfile, Weekday } from "@/types";
-import { Plus, AlertTriangle, Check, Trash2, X, CalendarClock } from "lucide-react";
+import type { SlotSuggestion } from "@/lib/timetable-conflicts";
+import { Plus, AlertTriangle, Check, Trash2, X, CalendarClock, Wand2 } from "lucide-react";
 
 const DAY_LABEL: Record<Weekday, string> = { MO: "Mon", TU: "Tue", WE: "Wed", TH: "Thu", FR: "Fri", SA: "Sat" };
 
@@ -49,6 +50,9 @@ export default function AdminTimetablePage() {
   const [conflicts, setConflicts] = useState<string[] | null>(null);
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState<string | null>(null);
+  // Ranked conflict-free placements, fetched only when a clash is found.
+  const [suggestions, setSuggestions] = useState<SlotSuggestion[]>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -99,11 +103,54 @@ export default function AdminTimetablePage() {
         ...(draft.room.trim() ? { room: draft.room.trim() } : {}),
       });
       setConflicts(found);
+
+      // Detection alone leaves the admin to hunt for a gap by hand.
+      // When there IS a clash, immediately search the week for
+      // placements that have none. A failure here is non-fatal: the
+      // conflict list is still useful on its own.
+      if (found.length > 0) {
+        setLoadingSuggestions(true);
+        try {
+          setSuggestions(
+            await suggestConflictFreeSlots(
+              profile.schoolId,
+              {
+                classId,
+                teacherId: draft.teacherId,
+                day: draft.day,
+                period: draft.period,
+                startTime: draft.startTime,
+                endTime: draft.endTime,
+                ...(draft.room.trim() ? { room: draft.room.trim() } : {}),
+              },
+              { limit: 3 }
+            )
+          );
+        } catch {
+          setSuggestions([]);
+        } finally {
+          setLoadingSuggestions(false);
+        }
+      } else {
+        setSuggestions([]);
+      }
     } catch (err) {
       setCheckError(err instanceof Error ? err.message : "Couldn't check for conflicts. Try again.");
     } finally {
       setChecking(false);
     }
+  };
+
+  /**
+   * Adopt a suggested placement: drop it into the draft and return to
+   * the form. The admin then re-runs Preview, which now reports no
+   * conflicts — so the suggestion is verified by the same detector
+   * rather than trusted blindly.
+   */
+  const applySuggestion = (s: SlotSuggestion) => {
+    setDraft((d) => ({ ...d, day: s.day as Weekday, period: s.period, startTime: s.startTime, endTime: s.endTime }));
+    setConflicts(null);
+    setSuggestions([]);
   };
 
   const apply = async () => {
@@ -235,6 +282,7 @@ export default function AdminTimetablePage() {
                       <div className="flex flex-col gap-3">
                         <PreviewDiff current={grouped[draft.day] ?? []} draft={draft} />
                         {conflicts.length > 0 ? (
+                          <>
                           <div className="flex flex-col gap-2 rounded-xl bg-danger/10 p-3">
                             <div className="flex items-center gap-2 text-danger">
                               <AlertTriangle className="h-4 w-4" />
@@ -245,8 +293,40 @@ export default function AdminTimetablePage() {
                                 • {c}
                               </p>
                             ))}
-                            <p className="text-[11px] text-ink-faint">You can still apply, but review this carefully — NEXUS AI won&apos;t resolve conflicts automatically.</p>
+                            <p className="text-[11px] text-ink-faint">You can still apply, but review this carefully.</p>
                           </div>
+
+                          {(loadingSuggestions || suggestions.length > 0) && (
+                            <div className="flex flex-col gap-2 rounded-xl bg-accent/10 p-3">
+                              <div className="flex items-center gap-2 text-accent-soft">
+                                <Wand2 className="h-4 w-4" />
+                                <p className="text-xs font-semibold">
+                                  {loadingSuggestions ? "Finding a free slot…" : "Suggested conflict-free slots"}
+                                </p>
+                              </div>
+                              {suggestions.map((sg) => (
+                                <button
+                                  key={`${sg.day}-${sg.period}`}
+                                  onClick={() => applySuggestion(sg)}
+                                  className="flex items-center justify-between gap-3 rounded-lg bg-white/6 px-3 py-2 text-left transition-transform active:scale-[0.98]"
+                                >
+                                  <span className="min-w-0">
+                                    <span className="block text-xs font-semibold text-ink">
+                                      {DAY_LABEL[sg.day as Weekday]} · Period {sg.period}
+                                    </span>
+                                    <span className="block text-[11px] text-ink-faint">
+                                      {sg.startTime}–{sg.endTime}
+                                    </span>
+                                  </span>
+                                  <span className="shrink-0 text-[11px] font-semibold text-accent-soft">Use this</span>
+                                </button>
+                              ))}
+                              {!loadingSuggestions && suggestions.length === 0 && (
+                                <p className="text-[11px] text-ink-faint">No free slot this week — try a different teacher or room.</p>
+                              )}
+                            </div>
+                          )}
+                          </>
                         ) : (
                           <div className="flex items-center gap-2 rounded-xl bg-success/10 p-3 text-success">
                             <Check className="h-4 w-4" />
