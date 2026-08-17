@@ -303,8 +303,36 @@
     outline: none;
   }
 
+  /* The app shell column.
+
+     Mobile is deliberately UNCHANGED at 480px — this is a
+     phone-first product and the touch layout is already right.
+
+     What changes is desktop. Locked at 480px the app rendered as a
+     phone-shaped sliver stranded in the middle of a laptop screen,
+     which is what "highly responsive" in the brief is really asking
+     about. The column widens in two steps to a comfortable reading
+     measure rather than stretching edge to edge: the screens stack in
+     a single column by design, and a 1400px-wide list row is worse
+     than a narrow one, not better.
+
+     The atmosphere is on <main> and already fills the whole viewport,
+     so the space either side of the column is lit background rather
+     than dead grey — a centred app shell, not a cramped one. */
   .screen-frame {
     @apply mx-auto flex min-h-dvh w-full max-w-[480px] flex-col px-6;
+  }
+
+  @media (min-width: 768px) {
+    .screen-frame {
+      @apply max-w-[600px] px-8;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .screen-frame {
+      @apply max-w-[680px] px-10;
+    }
   }
 }
 
