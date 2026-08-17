@@ -12,7 +12,9 @@ import {
   query,
   where,
   getDocs,
+  onSnapshot,
   serverTimestamp,
+  type Unsubscribe,
 } from "firebase/firestore";
 import { generateJoinCode } from "@/lib/utils";
 import type { School, SchoolMember, Role } from "@/types";
@@ -195,4 +197,29 @@ export async function getSchoolMembers(schoolId: string): Promise<SchoolMember[]
   if (!db) return [];
   const snap = await getDocs(collection(db, "schools", schoolId, "members"));
   return snap.docs.map((d) => d.data() as SchoolMember);
+}
+
+/**
+ * Live view of the same collection `getSchoolMembers` reads once.
+ *
+ * Additive: the one-shot version above is untouched and still used by
+ * every caller that only needs a snapshot. This exists so the admin
+ * dashboard can reflect a teacher or student joining the school without
+ * a manual refresh.
+ *
+ * `onError` is mandatory in spirit — a rules denial or missing index
+ * otherwise reports nowhere and the caller just sees data that never
+ * arrives, which is indistinguishable from an empty school.
+ */
+export function subscribeToSchoolMembers(
+  schoolId: string,
+  onChange: (members: SchoolMember[]) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  if (!db) return () => {};
+  return onSnapshot(
+    collection(db, "schools", schoolId, "members"),
+    (snap) => onChange(snap.docs.map((d) => d.data() as SchoolMember)),
+    (err) => onError?.(err)
+  );
 }
