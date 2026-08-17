@@ -37,7 +37,7 @@ export async function POST(request: Request) {
   }
 
   const rateKey = request.headers.get("x-forwarded-for") ?? "anonymous";
-  const rl = checkRateLimit(rateKey);
+  const rl = await checkRateLimit(rateKey);
   if (!rl.allowed) {
     return Response.json(
       { configured: true, error: "AI usage limit reached. Please try again in a minute.", errorCategory: "rate_limited" },

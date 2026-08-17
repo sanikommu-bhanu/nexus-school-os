@@ -86,6 +86,22 @@ export async function ingestDocumentText(params: {
   return { chunkCount: chunks.length, embedded: Boolean(embedResult) };
 }
 
+/**
+ * The audience values this caller could *possibly* use — used to narrow
+ * the Firestore query so a student never downloads teacher-only chunks.
+ *
+ * Returning `undefined` means "no filter" (admins can retrieve
+ * everything). This is intentionally a superset of what is actually
+ * allowed: "class" is included for any non-admin, because Firestore
+ * cannot check whether the chunk's classId is one of theirs. That final
+ * check is `isRetrievable`'s job, which every candidate still passes
+ * through — so widening here can never widen access.
+ */
+function retrievableAudiences(ctx: AiContext): KnowledgeAudience[] | undefined {
+  if (ctx.role === "admin") return undefined;
+  return ["school", "class", ctx.role];
+}
+
 /** True if a chunk's audience/classId is retrievable by this ctx. Mirrors announcement scoping. */
 function isRetrievable(ctx: AiContext, chunk: KnowledgeChunk): boolean {
   if (ctx.role === "admin") return true;
@@ -123,8 +139,16 @@ function keywordScore(query: Set<string>, text: string): number {
  * available documents" instead of fabricating an answer.
  */
 export async function retrieveRelevantChunks(ctx: AiContext, questionText: string): Promise<RetrievedChunk[]> {
-  const allChunks = await getSchoolChunks(ctx.schoolId);
-  const allowed = allChunks.filter((c) => isRetrievable(ctx, c));
+  // Narrow at the database first (cost/latency), then re-check every
+  // returned chunk in memory (security). The two are deliberately not
+  // the same mechanism: `retrievableAudiences` is an optimisation and is
+  // allowed to be loose, while `isRetrievable` is the actual boundary
+  // and stays strict — notably it still verifies class membership,
+  // which the audience filter cannot express.
+  const candidates = await getSchoolChunks(ctx.schoolId, {
+    audiences: retrievableAudiences(ctx),
+  });
+  const allowed = candidates.filter((c) => isRetrievable(ctx, c));
   if (allowed.length === 0) return [];
 
   const hasEmbeddings = allowed.some((c) => c.embedding.length > 0);

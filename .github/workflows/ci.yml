@@ -1,0 +1,92 @@
+name: CI
+
+# Every push and PR runs the same four gates that a reviewer would run
+# by hand: types, lint, production build, and both test suites.
+#
+# The security-rules suite is the important one. It needs the Firestore
+# emulator, which needs a JVM — that is why it cannot run on a plain
+# Windows dev machine without installing a JDK. GitHub's ubuntu runners
+# ship one, so CI is the place those tests actually execute on every
+# commit. See tests/rules.test.mjs.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # A new push to the same branch cancels the older, now-stale run.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Types · Lint · Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 22.x required: tests/timetable-conflicts.test.ts is run with
+          # `node --experimental-strip-types`, added in Node 22.6.
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Timetable conflict tests
+        run: npm run test:timetable
+
+      - name: Production build
+        # The Firebase client reads NEXT_PUBLIC_* at build time. These are
+        # throwaway values so the build is hermetic and no real project
+        # credentials ever touch CI — nothing here contacts Firebase.
+        env:
+          NEXT_PUBLIC_FIREBASE_API_KEY: ci-dummy-api-key
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: nexus-school-os.firebaseapp.com
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: nexus-school-os
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: nexus-school-os.appspot.com
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "000000000000"
+          NEXT_PUBLIC_FIREBASE_APP_ID: "1:000000000000:web:0000000000000000000000"
+        run: npm run build
+
+  rules:
+    name: Firestore security rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Set up JDK (required by the Firestore emulator)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - run: npm ci
+
+      - name: Cache emulator binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ runner.os }}
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools@13
+
+      - name: Run rules suite against the emulator
+        # `emulators:exec` boots Firestore, runs the suite, then tears the
+        # emulator down. The suite exits non-zero on any failure, which
+        # fails the job.
+        run: npm run test:rules:ci
