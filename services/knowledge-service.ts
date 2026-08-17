@@ -10,13 +10,24 @@
 // This is what Part 10 means by baking multi-tenancy into storage,
 // not just into a query filter.
 //
-// Scale note (Part 9): this reads the school's whole knowledge base
-// into memory per query. Fine for a demo-scale school handbook (tens
-// to low hundreds of chunks); swap the body of `getSchoolChunks` for
-// a real vector backend later without touching callers.
+// RETRIEVAL SEAM / scale note (Part 9).
+// `getSchoolChunks` is the single retrieval entry point: nothing above
+// it knows that ranking happens with in-memory cosine similarity, so
+// moving to pgvector / Vertex Matching Engine / Pinecone means
+// reimplementing this one function, with no change to lib/ai/rag.ts or
+// any caller.
+//
+// Until then the cost is bounded two ways rather than unbounded:
+//   1. audience filtering runs in the QUERY, so a caller never
+//      downloads chunks it has no permission to use;
+//   2. `limit(MAX_SCAN_CHUNKS)` caps the worst-case scan.
+// That keeps this honest at demo-to-mid scale (thousands of chunks).
+// Beyond that, approximate-nearest-neighbour search is required —
+// exact cosine over every candidate is O(n) per question no matter how
+// well the candidate set is filtered.
 // ============================================================
 import { db } from "@/lib/firebase";
-import { doc, setDoc, collection, query, where, getDocs, serverTimestamp, deleteDoc, writeBatch } from "firebase/firestore";
+import { doc, setDoc, collection, query, where, limit, getDocs, serverTimestamp, deleteDoc, writeBatch } from "firebase/firestore";
 import type { KnowledgeAudience, KnowledgeChunk } from "@/types";
 
 export interface NewKnowledgeChunk {
@@ -53,10 +64,59 @@ export async function saveKnowledgeChunks(chunks: NewKnowledgeChunk[]): Promise<
   }
 }
 
-/** All chunks for a school — the only collection query this module makes; every downstream filter runs in memory. */
-export async function getSchoolChunks(schoolId: string): Promise<KnowledgeChunk[]> {
+/**
+ * Hard ceiling on how many chunks one retrieval may scan.
+ *
+ * Bounds both the Firestore read cost and the in-memory cosine pass, so
+ * a school that grows its knowledge base to 50k chunks degrades to
+ * "ranks over the most recent MAX_SCAN_CHUNKS" instead of getting
+ * slower and more expensive without limit. Raising this past a few
+ * thousand is the signal to move to a real vector index — see the
+ * retrieval seam note at the top of this file.
+ */
+export const MAX_SCAN_CHUNKS = 1500;
+
+export interface ChunkQueryOptions {
+  /**
+   * Restrict to these audiences at the DATABASE level. This is a cost
+   * and latency optimisation, NOT the security boundary: callers still
+   * re-check every returned chunk against the caller's context (see
+   * `isRetrievable` in lib/ai/rag.ts). Omit to read every audience.
+   */
+  audiences?: KnowledgeAudience[];
+  /** Defaults to MAX_SCAN_CHUNKS. */
+  max?: number;
+}
+
+/**
+ * Candidate chunks for a school, narrowed at the database.
+ *
+ * Previously this read the entire knowledgeChunks collection on every
+ * question and filtered afterwards in memory — so a student's question
+ * still paid to download teacher- and admin-only chunks before
+ * discarding them. Pushing the audience filter into the query means a
+ * caller only ever reads rows it could actually use, and `limit()`
+ * caps the worst case.
+ */
+export async function getSchoolChunks(
+  schoolId: string,
+  options: ChunkQueryOptions = {}
+): Promise<KnowledgeChunk[]> {
   if (!db) return [];
-  const snap = await getDocs(collection(db, "schools", schoolId, "knowledgeChunks"));
+
+  const max = options.max ?? MAX_SCAN_CHUNKS;
+  const base = collection(db, "schools", schoolId, "knowledgeChunks");
+
+  // Firestore caps `in` at 30 values; the audience union is at most 3
+  // (school + the caller's own role + class), so this never overflows.
+  // An empty array would be an invalid query, so treat it as "no filter".
+  const audiences = options.audiences?.length ? options.audiences : null;
+
+  const q = audiences
+    ? query(base, where("audience", "in", audiences), limit(max))
+    : query(base, limit(max));
+
+  const snap = await getDocs(q);
   return snap.docs.map((d) => d.data() as KnowledgeChunk);
 }
 

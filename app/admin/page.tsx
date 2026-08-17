@@ -9,96 +9,67 @@ import { MetricCard, SectionHeader } from "@/components/ui/MetricCard";
 import { InsightCard } from "@/components/ui/ListRow";
 import { LoadingState, ErrorState } from "@/components/ui/States";
 import { useAuthUser } from "@/hooks/useAuthUser";
-import { getSchoolMembers } from "@/services/school-service";
-import { getClassesForSchool } from "@/services/class-service";
-import { getAttendanceForClassRange, summarizeAttendance, compareAttendanceWindows, todayISO } from "@/services/attendance-service";
+import { useSchoolPulse } from "@/hooks/useSchoolPulse";
 import { subscribeToNotifications } from "@/services/notification-service";
+import { getWorkloadReport, type WorkloadReport } from "@/services/workload-service";
+import { getUserProfiles } from "@/services/user-service";
 import { ExplainableInsightCard } from "@/components/ai/ExplainableInsightCard";
 import type { NotificationItem } from "@/types";
-import { UserPlus, FolderPlus, ClipboardCheck, UploadCloud, TrendingDown, CheckCircle2, Bell } from "lucide-react";
-
-interface Pulse {
-  students: number;
-  teachers: number;
-  classes: number;
-  attendanceToday: number;
-}
-
-interface ClassInsight {
-  classId: string;
-  className: string;
-  percent: number;
-  trend: { recentPct: number | null; priorPct: number | null; delta: number | null };
-}
+import { UserPlus, FolderPlus, ClipboardCheck, UploadCloud, TrendingDown, CheckCircle2, Bell, Scale } from "lucide-react";
 
 export default function AdminPage() {
   const { profile } = useAuthUser();
-  const [pulse, setPulse] = useState<Pulse | null>(null);
-  const [lowAttendance, setLowAttendance] = useState<ClassInsight[]>([]);
+
+  // Live: members, classes and today's attendance stream in over
+  // onSnapshot, so a teacher marking the register or a student joining
+  // updates this dashboard without a refresh. Replaces the one-shot
+  // read-on-mount this screen used to do. The arithmetic behind these
+  // figures is unchanged — see derivePulse in the store.
+  const { pulse, trends: lowAttendance, teacherIds, loading, error: loadError } = useSchoolPulse(profile?.schoolId);
+
   const [activity, setActivity] = useState<NotificationItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!profile?.schoolId) return;
-    let cancelled = false;
+    if (!profile?.schoolId || !profile.id) return;
+    return subscribeToNotifications(profile.schoolId, profile.id, setActivity);
+  }, [profile?.schoolId, profile?.id]);
 
+  // Staff workload. Recomputed when the live member list changes, which
+  // is exactly when the answer can change. Read-only and best-effort: a
+  // failure here leaves the rest of the dashboard untouched.
+  const [workload, setWorkload] = useState<WorkloadReport | null>(null);
+  const [teacherNames, setTeacherNames] = useState<Map<string, string>>(new Map());
+  const teacherIdKey = teacherIds.join(",");
+
+  useEffect(() => {
+    if (!profile?.schoolId || teacherIds.length === 0) {
+      setWorkload(null);
+      return;
+    }
+    let cancelled = false;
     (async () => {
       try {
-        const [members, classes] = await Promise.all([
-          getSchoolMembers(profile.schoolId!),
-          getClassesForSchool(profile.schoolId!),
-        ]);
-
-        const since = new Date(Date.now() - 14 * 24 * 3600 * 1000).toISOString().slice(0, 10);
-        const perClass = await Promise.all(
-          classes.map(async (c) => {
-            const records = await getAttendanceForClassRange(profile.schoolId!, c.id, since);
-            const today = records.filter((r) => r.date === todayISO());
-            return { class: c, today: summarizeAttendance(today), week: summarizeAttendance(records), trend: compareAttendanceWindows(records) };
-          })
-        );
-
+        const report = await getWorkloadReport(profile.schoolId!, teacherIds);
         if (cancelled) return;
-
-        const todayTotal = perClass.reduce((acc, p) => acc + p.today.total, 0);
-        const todayPresent = perClass.reduce((acc, p) => acc + p.today.present + p.today.late * 0.5, 0);
-
-        setPulse({
-          students: members.filter((m) => m.role === "student").length,
-          teachers: members.filter((m) => m.role === "teacher").length,
-          classes: classes.length,
-          attendanceToday: todayTotal > 0 ? Math.round((todayPresent / todayTotal) * 100) : 0,
-        });
-
-        setLowAttendance(
-          perClass
-            .filter((p) => (p.trend.recentPct ?? p.week.percentPresent) > 0 && (p.trend.recentPct ?? p.week.percentPresent) < 85 && p.week.total > 0)
-            .map((p) => ({
-              classId: p.class.id,
-              className: p.class.name,
-              percent: p.trend.recentPct ?? p.week.percentPresent,
-              trend: p.trend,
-            }))
-            .sort((a, b) => a.percent - b.percent)
-            .slice(0, 3)
-        );
-
-      } catch (err) {
-        // Without this, a rejected read left `loading` true forever and
-        // the admin sat on "Loading your school's pulse…" indefinitely.
-        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Couldn't load your school's pulse.");
-      } finally {
-        if (!cancelled) setLoading(false);
+        setWorkload(report);
+        if (report.suggestions.length > 0) {
+          const profiles = await getUserProfiles(teacherIds);
+          if (cancelled) return;
+          setTeacherNames(new Map([...profiles].map(([id, p]) => [id, p.fullName])));
+        }
+      } catch {
+        if (!cancelled) setWorkload(null);
       }
     })();
-
-    const unsub = subscribeToNotifications(profile.schoolId, profile.id, setActivity);
     return () => {
       cancelled = true;
-      unsub();
     };
-  }, [profile?.schoolId, profile?.id]);
+    // teacherIdKey is a stable string of the same ids — depending on the
+    // array itself would refire on every snapshot that rebuilds it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.schoolId, teacherIdKey]);
+
+  const nameOf = (id: string) => teacherNames.get(id) ?? "A teacher";
 
   return (
     <AuthGuard allowRoles={["admin"]}>
@@ -132,7 +103,7 @@ export default function AdminPage() {
             </div>
 
             <SectionHeader title="NEXUS Intelligence" />
-            {lowAttendance.length === 0 ? (
+            {lowAttendance.length === 0 && (workload?.suggestions.length ?? 0) === 0 ? (
               <InsightCard
                 icon={<CheckCircle2 className="h-4.5 w-4.5" />}
                 title="Everything looks good"
@@ -159,6 +130,22 @@ export default function AdminPage() {
                     ]}
                   />
                 ))}
+
+                {workload && workload.suggestions.length > 0 && (
+                  <ExplainableInsightCard
+                    icon={<Scale className="h-4.5 w-4.5" />}
+                    title="Teaching load is uneven"
+                    tone="accent"
+                    whatChanged={`${nameOf(workload.suggestions[0].fromTeacherId)} is on ${workload.suggestions[0].fromLoad} periods a week against a staff average of ${workload.analysis.meanPeriods} — a spread of ${workload.analysis.spread} periods across the team.`}
+                    whyItMatters="A lopsided timetable is the usual root cause of missed marking, burnout and last-minute cover requests. Rebalancing early is far cheaper than finding a substitute on the morning."
+                    whatCanIDo={[
+                      {
+                        label: `Move ${workload.suggestions[0].subject} to ${nameOf(workload.suggestions[0].toTeacherId)}`,
+                        href: `/admin/classes/${workload.suggestions[0].classId}/timetable`,
+                      },
+                    ]}
+                  />
+                )}
               </div>
             )}
 

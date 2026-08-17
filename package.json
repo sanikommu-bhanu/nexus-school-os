@@ -11,8 +11,11 @@
     "dev:emulator": "cross-env NEXT_PUBLIC_USE_FIREBASE_EMULATOR=1 next dev",
     "emulators": "firebase emulators:start --only auth,firestore,storage --project nexus-school-os",
     "test:timetable": "node --experimental-strip-types tests/timetable-conflicts.test.ts",
+    "check:emulator": "node scripts/check-emulator-prereqs.mjs",
+    "test:workload": "node --experimental-strip-types tests/workload.test.ts",
+    "test:capture": "node --experimental-strip-types tests/attendance-capture.test.ts",
     "test:rules": "node tests/rules.test.mjs",
-    "test:rules:ci": "firebase emulators:exec --only firestore --project nexus-school-os \"node tests/rules.test.mjs\""
+    "test:rules:ci": "npm run check:emulator && firebase emulators:exec --only firestore --project nexus-school-os \"node tests/rules.test.mjs\""
   },
   "dependencies": {
     "clsx": "2.1.1",

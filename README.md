@@ -1,5 +1,13 @@
 # NEXUS — AI Operating System for Schools
 
+[![CI](https://github.com/sanikommu-bhanu/nexus-school-os/actions/workflows/ci.yml/badge.svg)](https://github.com/sanikommu-bhanu/nexus-school-os/actions/workflows/ci.yml)
+
+Every push runs typecheck, lint, a production build, the timetable-conflict
+suite, and the **Firestore security-rules suite against a live emulator** —
+see [`.github/workflows/ci.yml`](.github/workflows/ci.yml). The rules tests
+prove the rules actually reject the attacks `firestore.rules` claims to
+reject, rather than merely looking strict.
+
 **Live Demo:** [https://nexus-school-os.vercel.app](https://nexus-school-os.vercel.app)
 
 **Project Documentation:** [Google Docs](https://docs.google.com/document/d/1FE2-6mtnKE6ZKbu6pr_gY_7dSU4V2SzQ/edit?usp=drivesdk&ouid=100993605915840593739&rtpof=true&sd=true)

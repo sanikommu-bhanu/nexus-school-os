@@ -6,8 +6,14 @@
 // ============================================================
 import { db } from "@/lib/firebase";
 import { doc, setDoc, collection, query, where, getDocs, serverTimestamp, deleteDoc } from "firebase/firestore";
-import { findConflicts, type SlotLike } from "@/lib/timetable-conflicts";
+import {
+  findConflicts,
+  suggestAlternativeSlots,
+  type SlotLike,
+  type SlotSuggestion,
+} from "@/lib/timetable-conflicts";
 import { stripUndefined } from "@/lib/utils";
+import { WEEKDAYS } from "@/types";
 import type { TimetableSlot, Weekday } from "@/types";
 
 export async function createTimetableSlot(
@@ -81,6 +87,65 @@ export async function detectConflicts(
   return findConflicts(
     candidate as SlotLike,
     daySlots.docs.map((d) => d.data() as TimetableSlot),
+    excludeSlotId
+  );
+}
+
+/**
+ * Default bell schedule used when suggesting alternatives. Kept here
+ * rather than in the pure module so the algorithm stays free of any
+ * assumption about how a particular school runs its day — a school
+ * with a different timetable passes its own map.
+ */
+export const DEFAULT_PERIOD_START_TIMES: Record<number, string> = {
+  1: "09:00",
+  2: "10:00",
+  3: "11:00",
+  4: "12:00",
+  5: "13:00",
+  6: "14:00",
+  7: "15:00",
+  8: "16:00",
+};
+
+/**
+ * Conflict RESOLUTION (the other half of Part 14).
+ *
+ * `detectConflicts` answers "is this slot legal?". This answers the
+ * question an admin actually has next — "then where can it go?" —
+ * by searching the whole week rather than just the requested day.
+ *
+ * Reads every slot for the school once and hands them to the pure
+ * search in lib/timetable-conflicts.ts, so ranking stays unit-tested
+ * and Firestore-free. Every returned suggestion is guaranteed to pass
+ * `findConflicts`, which the test suite asserts directly.
+ */
+export async function suggestConflictFreeSlots(
+  schoolId: string,
+  candidate: Pick<TimetableSlot, "classId" | "teacherId" | "day" | "period" | "room" | "startTime" | "endTime">,
+  options?: {
+    days?: Weekday[];
+    periods?: number[];
+    periodStartTimes?: Record<number, string>;
+    limit?: number;
+  },
+  excludeSlotId?: string
+): Promise<SlotSuggestion[]> {
+  if (!db) return [];
+
+  // The whole week, because a resolution may well be on another day.
+  const all = await getDocs(collection(db, "schools", schoolId, "timetable"));
+  const existing = all.docs.map((d) => d.data() as TimetableSlot);
+
+  return suggestAlternativeSlots(
+    candidate as SlotLike,
+    existing,
+    {
+      days: options?.days ?? [...WEEKDAYS],
+      periods: options?.periods ?? [1, 2, 3, 4, 5, 6, 7, 8],
+      periodStartTimes: options?.periodStartTimes ?? DEFAULT_PERIOD_START_TIMES,
+      limit: options?.limit ?? 5,
+    },
     excludeSlotId
   );
 }

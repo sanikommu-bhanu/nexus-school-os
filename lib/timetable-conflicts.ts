@@ -104,3 +104,130 @@ export function findConflicts(
   // Two different existing slots can produce the same sentence.
   return Array.from(new Set(conflicts));
 }
+
+// ============================================================
+// Conflict RESOLUTION.
+//
+// Detection alone tells an admin "no" and leaves them to hunt for a
+// gap by hand — which is exactly the manual, siloed scheduling this
+// project exists to remove. The search below answers the useful
+// question instead: "given everything already booked, where CAN this
+// go?"
+//
+// Pure, like the rest of this file: the caller supplies the desired
+// slot and every slot already on the timetable, and gets back ranked
+// alternatives. No Firestore, no network, unit-testable directly.
+// ============================================================
+
+export interface SlotSuggestion {
+  day: string;
+  period: number;
+  startTime: string;
+  endTime: string;
+  /** Lower is better. 0 = same day and same period length, just moved. */
+  cost: number;
+  /** Why this was ranked where it was, for display next to the option. */
+  reason: string;
+}
+
+export interface SuggestOptions {
+  /** Days to consider, in preference order (e.g. WEEKDAYS). */
+  days: string[];
+  /** Period numbers to consider, in order (e.g. [1..8]). */
+  periods: number[];
+  /**
+   * Wall-clock start time for each period number, e.g.
+   * { 1: "09:00", 2: "10:00" }. Periods missing from this map are
+   * skipped — a suggestion with no real time would not be actionable.
+   */
+  periodStartTimes: Record<number, string>;
+  /** Slot length in minutes. Defaults to the candidate's own length. */
+  durationMinutes?: number;
+  /** How many suggestions to return. */
+  limit?: number;
+}
+
+function toHHMM(totalMinutes: number): string {
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+/** The candidate's own length in minutes, when both times parse. */
+export function slotDuration(slot: SlotLike): number | null {
+  const start = toMinutes(slot.startTime);
+  const end = toMinutes(slot.endTime);
+  if (start === null || end === null || end <= start) return null;
+  return end - start;
+}
+
+/**
+ * Finds placements for `candidate` that clash with nothing.
+ *
+ * Strategy: enumerate the (day x period) grid, reject any cell that
+ * `findConflicts` rejects — so a suggestion can never contradict the
+ * detector — then rank what survives:
+ *
+ *   +0   same day as originally wanted (keeps the teacher's routine)
+ *   +10  a different day
+ *   +n   distance in period numbers from the original slot
+ *
+ * so the first result is the smallest change that actually works. This
+ * is a deliberate greedy search over a small fixed grid (a week x ~8
+ * periods = tens of cells), not a general CSP solver: it is O(cells x
+ * existing slots), runs in microseconds, and is trivial to reason
+ * about. A full solver only becomes worthwhile when generating an
+ * entire timetable from scratch rather than placing one slot.
+ */
+export function suggestAlternativeSlots(
+  candidate: SlotLike,
+  existing: SlotLike[],
+  options: SuggestOptions,
+  excludeId?: string
+): SlotSuggestion[] {
+  const { days, periods, periodStartTimes } = options;
+  const limit = options.limit ?? 5;
+  const duration = options.durationMinutes ?? slotDuration(candidate) ?? 45;
+
+  const suggestions: SlotSuggestion[] = [];
+
+  for (const day of days) {
+    for (const period of periods) {
+      const startHHMM = periodStartTimes[period];
+      if (!startHHMM) continue;
+
+      const startMin = toMinutes(startHHMM);
+      if (startMin === null) continue;
+
+      const probe: SlotLike = {
+        ...candidate,
+        day,
+        period,
+        startTime: startHHMM,
+        endTime: toHHMM(startMin + duration),
+      };
+
+      // Skip the placement the caller already has — suggesting the
+      // status quo is noise.
+      if (day === candidate.day && period === candidate.period) continue;
+
+      if (findConflicts(probe, existing, excludeId).length > 0) continue;
+
+      const sameDay = day === candidate.day;
+      const periodDistance = Math.abs(period - candidate.period);
+
+      suggestions.push({
+        day,
+        period,
+        startTime: probe.startTime!,
+        endTime: probe.endTime!,
+        cost: (sameDay ? 0 : 10) + periodDistance,
+        reason: sameDay
+          ? `Same day, period ${period}`
+          : `${day}, period ${period}`,
+      });
+    }
+  }
+
+  return suggestions.sort((a, b) => a.cost - b.cost).slice(0, limit);
+}

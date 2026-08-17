@@ -13,6 +13,7 @@ import {
   query,
   where,
   getDocs,
+  onSnapshot,
   serverTimestamp,
   increment,
   runTransaction,
@@ -198,6 +199,24 @@ export async function getClassesForSchool(schoolId: string): Promise<ClassEntity
   if (!db) return [];
   const snap = await getDocs(collection(db, "schools", schoolId, "classes"));
   return snap.docs.map((d) => d.data() as ClassEntity);
+}
+
+/**
+ * Live view of the same collection `getClassesForSchool` reads once.
+ * Additive — the one-shot version above is unchanged and still used
+ * everywhere it was. See subscribeToSchoolMembers for the rationale.
+ */
+export function subscribeToClassesForSchool(
+  schoolId: string,
+  onChange: (classes: ClassEntity[]) => void,
+  onError?: (err: Error) => void
+): import("firebase/firestore").Unsubscribe {
+  if (!db) return () => {};
+  return onSnapshot(
+    collection(db, "schools", schoolId, "classes"),
+    (snap) => onChange(snap.docs.map((d) => d.data() as ClassEntity)),
+    (err) => onError?.(err)
+  );
 }
 
 export async function getClassesForTeacher(schoolId: string, teacherId: string): Promise<ClassEntity[]> {
