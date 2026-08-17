@@ -1,6 +1,7 @@
 # NEXUS — AI Operating System for Schools
 
-### 🔗 [Live Demo](https://nexus-school-os.vercel.app) · [Project Documentation (Google Drive)](https://docs.google.com/document/d/1FE2-6mtnKE6ZKbu6pr_gY_7dSU4V2SzQ/edit?usp=drivesdk&ouid=100993605915840593739&rtpof=true&sd=true)
+> **🚀 [Click here for the Live Deployment](https://nexus-school-os.vercel.app)**
+> **📄 [Click here for the Google Doc Documentation](https://docs.google.com/document/d/1FE2-6mtnKE6ZKbu6pr_gY_7dSU4V2SzQ/edit?usp=drivesdk&ouid=100993605915840593739&rtpof=true&sd=true)**
 
 [![CI](https://github.com/sanikommu-bhanu/nexus-school-os/actions/workflows/ci.yml/badge.svg)](https://github.com/sanikommu-bhanu/nexus-school-os/actions/workflows/ci.yml)
 
