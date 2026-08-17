@@ -1,18 +1,297 @@
 # NEXUS — AI Operating System for Schools
 
+### 🔗 [Live Demo](https://nexus-school-os.vercel.app) · [Project Documentation (Google Drive)](https://docs.google.com/document/d/1FE2-6mtnKE6ZKbu6pr_gY_7dSU4V2SzQ/edit?usp=drivesdk&ouid=100993605915840593739&rtpof=true&sd=true)
+
 [![CI](https://github.com/sanikommu-bhanu/nexus-school-os/actions/workflows/ci.yml/badge.svg)](https://github.com/sanikommu-bhanu/nexus-school-os/actions/workflows/ci.yml)
 
-Every push runs typecheck, lint, a production build, the timetable-conflict
-suite, and the **Firestore security-rules suite against a live emulator** —
-see [`.github/workflows/ci.yml`](.github/workflows/ci.yml). The rules tests
-prove the rules actually reject the attacks `firestore.rules` claims to
-reject, rather than merely looking strict.
+An AI-powered school operating system that replaces manual data entry, paper
+records and siloed scheduling with one intelligent platform for admins,
+teachers, students and parents.
 
-**Live Demo:** [https://nexus-school-os.vercel.app](https://nexus-school-os.vercel.app)
+Real source, not a mockup — run it locally against your own free-tier Firebase
+project. Every push runs typecheck, lint, a production build, three pure test
+suites, and the **Firestore security-rules suite against a live emulator**, so
+the rules are proven to reject the attacks they claim to reject rather than
+merely looking strict.
 
-**Project Documentation:** [Google Docs](https://docs.google.com/document/d/1FE2-6mtnKE6ZKbu6pr_gY_7dSU4V2SzQ/edit?usp=drivesdk&ouid=100993605915840593739&rtpof=true&sd=true)
+---
 
-Phase 1 build. Real source, not a mockup — run it locally against your own free-tier Firebase project.
+## System diagrams
+
+Six system-level diagrams are below. Four more detailed walkthroughs live
+further down, next to the code they describe:
+[data model](#the-data-model) ·
+[join and membership flows](#join-and-membership-flows) ·
+[auth and onboarding routing](#auth-and-onboarding-routing) ·
+[the AI request path](#the-ai-request-path).
+
+### 1. System architecture
+
+Four layers, one rule: screens never touch Firestore directly, and the domain
+logic never touches the network.
+
+```mermaid
+flowchart TB
+    subgraph CLIENT["Client — Next.js 14 App Router / PWA"]
+        UI["65 screens<br/>admin · teacher · student · parent"]
+        DSY["Design system<br/>components/ui — all tokens"]
+        HKS["Hooks and stores<br/>useAuthUser · useSchoolPulse<br/>zustand school-pulse-store"]
+    end
+
+    subgraph DOMAIN["Domain logic — pure, no I/O, 89 unit tests"]
+        TCF["timetable-conflicts.ts<br/>detect + resolve"]
+        WKL["workload.ts<br/>load + reallocation"]
+        ACP["attendance-capture.ts<br/>scan to student"]
+        CHK["ai/chunk.ts<br/>chunking + cosine"]
+    end
+
+    subgraph SERVICES["Service layer — one sole writer per collection"]
+        SVA["school · class · student<br/>teacher · parent-link"]
+        SVB["attendance · timetable · fee<br/>document · messaging · notification"]
+        SVC["ai-tools · knowledge · smart-search<br/>workload"]
+    end
+
+    subgraph SERVER["Server — Next.js route handlers"]
+        AP1["/api/ai/ask"]
+        AP2["/api/ai/embed"]
+        AP3["/api/ai/document/extract"]
+        AP4["/api/ai/status"]
+    end
+
+    subgraph EXTERNAL["External services"]
+        FBA["Firebase Auth"]
+        FST["Cloud Firestore<br/>guarded by firestore.rules"]
+        CLD["Cloudinary<br/>document storage"]
+        GEM["Google Gemini"]
+    end
+
+    UI --> DSY
+    UI --> HKS
+    UI --> SVA
+    UI --> SVB
+    HKS --> SVA
+    HKS --> SVB
+    UI --> AP1
+    UI --> AP3
+
+    SVB --> TCF
+    SVC --> WKL
+    SVC --> CHK
+    UI --> ACP
+
+    HKS --> FBA
+    SVA --> FST
+    SVB --> FST
+    SVC --> FST
+    SVB --> CLD
+
+    AP1 --> GEM
+    AP2 --> GEM
+    AP3 --> GEM
+    AP1 --> SVC
+```
+
+**Why file storage is Cloudinary, not Firebase Storage:** Storage requires the
+paid Blaze plan. Auth and Firestore stay on the free tier, so the whole system
+runs at zero cost.
+
+---
+
+### 2. AI document processing and the RAG knowledge base
+
+How a physical form becomes answerable knowledge. The API key never reaches
+the browser — every model call is proxied through a server route.
+(The tool-calling side of a question is detailed in
+[the AI request path](#the-ai-request-path).)
+
+```mermaid
+flowchart TB
+    subgraph INGEST["Ingestion — a physical document arrives"]
+        D1["Photo or PDF uploaded"] --> D2["Cloudinary stores the bytes"]
+        D2 --> D3["Gemini vision extracts text<br/>+ typed fields per document type"]
+        D3 --> D4["Human reviews and corrects"]
+        D4 --> D5["chunkText"]
+        D5 --> D6["Embed via /api/ai/embed"]
+        D6 --> D7["knowledgeChunks<br/>tagged with audience + classId"]
+    end
+
+    subgraph ASK["Retrieval — a question is asked"]
+        Q1["Question"] --> Q2["Rate limit"]
+        Q2 --> Q3["Build AiContext<br/>role · schoolId · classIds"]
+        Q3 --> Q4["Narrow by audience in the QUERY<br/>+ bounded scan"]
+        Q4 --> Q5["Re-check each chunk<br/>with isRetrievable"]
+        Q5 --> Q6["Cosine rank<br/>MIN_SIMILARITY 0.55"]
+        Q6 --> Q7{"Anything above<br/>the bar?"}
+        Q7 -- No --> Q8["Say so honestly:<br/>not found in your documents"]
+        Q7 -- Yes --> Q9["Gemini rephrases<br/>only the retrieved facts"]
+        Q9 --> Q10["Answer + citations"]
+    end
+
+    D7 -.->|"knowledge base"| Q4
+```
+
+**Two things worth noting.** Permission is enforced *twice* — narrowed in the
+query for cost, then re-checked in memory for security, because Firestore
+cannot verify class membership. And when nothing clears the relevance bar the
+system returns **nothing** rather than forcing a weak match, so it can say "I
+don't know" instead of inventing an answer.
+
+---
+
+### 3. Timetable — conflict detection and resolution
+
+Detection alone tells an admin "no". Resolution answers the question they
+actually have next: *then where can it go?*
+
+```mermaid
+flowchart TD
+    IN["Admin drafts a slot<br/>class · teacher · room · day · period"] --> PREV["Preview changes"]
+    PREV --> DET["findConflicts<br/>wall-clock overlap, not period equality"]
+    DET --> HAS{"Conflicts?"}
+
+    HAS -- No --> OK["No conflicts — Apply"]
+
+    HAS -- Yes --> SHOW["Show teacher / class / room clashes"]
+    SHOW --> SEARCH["suggestAlternativeSlots<br/>enumerate the day x period grid"]
+    SEARCH --> FILTER["Reject every cell findConflicts rejects"]
+    FILTER --> RANK["Rank: same day +0 · other day +10<br/>· period distance +n"]
+    RANK --> OFFER["Offer the top 3 free slots"]
+    OFFER --> PICK["Admin taps Use this"]
+    PICK --> PREV
+
+    OK --> SAVE["Write to timetable"]
+```
+
+The loop is deliberate: a suggestion is re-verified by the **same detector**
+the admin just used, so the system can never recommend something impossible.
+
+---
+
+### 4. Predictive resource allocation
+
+Staffing recommendations derived from the school's own timetable — no model,
+so every suggestion can be explained and justified.
+
+```mermaid
+flowchart TD
+    TT["Timetable slots"] --> LOAD["computeTeacherLoads<br/>periods/week · active days · busiest day"]
+    MEM["Active teachers<br/>including those teaching nothing"] --> LOAD
+    LOAD --> AN["analyseWorkload<br/>mean · spread · over / under-loaded"]
+    AN --> ANY{"Imbalance beyond<br/>tolerance?"}
+    ANY -- No --> CLEAR["Nothing to report"]
+    ANY -- Yes --> TRY["suggestReallocations<br/>least-loaded candidate first"]
+    TRY --> CHK{"Is the receiving teacher<br/>free at that exact slot?"}
+    CHK -- No --> TRY
+    CHK -- Yes --> ACC["Accept the move<br/>update running totals"]
+    ACC --> CARD["Explainable insight on the admin dashboard<br/>deep-links to that class's timetable"]
+
+    COVER["Teacher absent today?"] --> FIND["findCoverOptions<br/>who is free, period by period"]
+    FIND --> CHK
+```
+
+Every move is checked against the **same conflict detector** used above, so a
+recommendation is never impossible to act on.
+
+---
+
+### 5. Automated attendance capture
+
+RFID/NFC, camera and keyboard converge on one code path — there is no second
+attendance pipeline to keep in sync.
+
+```mermaid
+flowchart LR
+    subgraph SENSORS["Capture — any source"]
+        N["NFC / RFID tap<br/>Web NDEFReader"]
+        C["Camera scan<br/>continuous"]
+        K["Typed roll number"]
+    end
+
+    N --> TOK["token: string"]
+    C --> TOK
+    K --> TOK
+
+    TOK --> NORM["normalizeToken<br/>unwrap deep links and prefixes"]
+    NORM --> RES["resolveScan<br/>userId first, then roll number"]
+    RES --> FOUND{"Resolved?"}
+
+    FOUND -- "No / ambiguous" --> UNK["Report unknown card<br/>never guess a student"]
+    FOUND -- Yes --> DUP{"Already scanned?"}
+    DUP -- Yes --> NOOP["Duplicate — no-op"]
+    DUP -- No --> MARK["Mark present in the statuses map"]
+
+    MARK --> SAME["The same map the manual buttons write"]
+    SAME --> SAVE["saveAttendance"]
+```
+
+If no NDEF payload is present the tag's **hardware serial** is used, so a
+school keeps its existing RFID cards instead of reissuing every one.
+
+---
+
+### 6. Reactive dashboard state
+
+The admin dashboard is a live command center, not a snapshot. Mark attendance
+on a phone and the dashboard updates on a laptop without a refresh.
+
+```mermaid
+flowchart LR
+    subgraph FS["Cloud Firestore"]
+        M["members"]
+        CL["classes"]
+        AT["attendance — today"]
+        NT["notifications"]
+    end
+
+    M -->|onSnapshot| ST["zustand<br/>school-pulse-store"]
+    CL -->|onSnapshot| ST
+    AT -->|onSnapshot| ST
+    ST -->|"class list changes"| TR["Recompute 14-day trends<br/>getDocs, not a live listener"]
+    TR --> ST
+
+    ST --> HK["useSchoolPulse<br/>reference-counted"]
+    HK --> P1["Metric cards"]
+    HK --> P2["Attendance percentage"]
+    HK --> P3["Insight cards"]
+    HK --> WL["Workload analysis"]
+    NT -->|onSnapshot| P4["Recent activity"]
+```
+
+**A deliberate cost decision:** members, classes and *today's* attendance are
+live, because those change during a school day. The 14-day trend windows are
+recomputed on change instead — a fortnight of history does not move
+second-to-second, and N live listeners over a 14-day range would be real money
+for no observable benefit.
+
+---
+
+### 7. Verification pipeline
+
+```mermaid
+flowchart LR
+    PUSH(["git push / PR"]) --> J1["Job: Types · Lint · Build"]
+    PUSH --> J2["Job: Firestore security rules"]
+
+    J1 --> T1["tsc --noEmit"]
+    T1 --> T2["next lint"]
+    T2 --> T3["timetable-conflicts — 39 tests"]
+    T3 --> T4["workload — 23 tests"]
+    T4 --> T5["attendance-capture — 27 tests"]
+    T5 --> T6["next build — 58 pages"]
+
+    J2 --> R1["Set up JDK 17"]
+    R1 --> R2["Boot the Firestore emulator"]
+    R2 --> R3["Run the rules suite<br/>real attacks, all must be rejected"]
+
+    T6 --> GREEN(["Green"])
+    R3 --> GREEN
+```
+
+The rules suite needs a JVM, which a plain Windows dev box does not have — so
+CI is where those tests actually execute on every commit. Running them locally
+prints a clear preflight message with the one-line install per platform.
+
+---
 
 ## Run it
 
