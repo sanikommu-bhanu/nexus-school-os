@@ -70,16 +70,26 @@ export default function ParentPage() {
 
   const child = children.find((c) => c.studentId === selectedChildId) ?? children[0];
 
+  // Hoisted to primitives so the dependency list is exactly the three
+  // ids the effect actually reads. Depending on `child` itself (which is
+  // what the exhaustive-deps rule would otherwise ask for) would re-run
+  // this on every render that rebuilds the object, even when the ids are
+  // unchanged — so this keeps the original, narrower behaviour while
+  // making the dependency list honest.
+  const feeSchoolId = profile?.schoolId;
+  const feeStudentId = child?.studentId;
+  const feeClassId = child?.cls?.id;
+
   useEffect(() => {
-    if (!profile?.schoolId || !child?.cls?.id) { setFeeSummary(null); return; }
+    if (!feeSchoolId || !feeClassId || !feeStudentId) { setFeeSummary(null); return; }
     (async () => {
       const [structures, payments] = await Promise.all([
-        getFeeStructuresForClass(profile.schoolId!, child.cls!.id),
-        getPaymentsForStudent(profile.schoolId!, child.studentId),
+        getFeeStructuresForClass(feeSchoolId, feeClassId),
+        getPaymentsForStudent(feeSchoolId, feeStudentId),
       ]);
       setFeeSummary(summarizeStudentFees(structures, payments));
     })();
-  }, [profile?.schoolId, child?.studentId, child?.cls?.id]);
+  }, [feeSchoolId, feeStudentId, feeClassId]);
 
   const messageTeacher = async () => {
     if (!profile?.schoolId || !profile.id || !child?.cls?.teacherId) return;
