@@ -6,6 +6,13 @@
   * {
     @apply border-glass-border;
   }
+  html {
+    /* Tells the UA to render its own form internals dark: the
+       <input type="date"> picker and its indicator, number spinners,
+       scrollbars and dropdown arrows. Without it those are drawn with
+       light-mode defaults and vanish against this theme. */
+    color-scheme: dark;
+  }
   html,
   body {
     @apply bg-base-950 text-ink antialiased;
@@ -30,6 +37,24 @@
   select.input-glass optgroup {
     background-color: #241c24;
     color: #fbf4f7;
+  }
+
+  /* Chrome paints autofilled fields with its own pale-yellow/blue
+     background through an internal style that `background-color`
+     cannot override — so an autofilled email or password would sit as
+     near-white text on a pale field. A large inset box-shadow is the
+     only reliable way to repaint it, and `-webkit-text-fill-color`
+     is what actually controls the glyph colour in that state. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  textarea:-webkit-autofill,
+  select:-webkit-autofill {
+    -webkit-box-shadow: 0 0 0 1000px #241c24 inset;
+    box-shadow: 0 0 0 1000px #241c24 inset;
+    -webkit-text-fill-color: #fbf4f7;
+    caret-color: #fbf4f7;
+    transition: background-color 9999s ease-in-out 0s;
   }
 }
 
@@ -164,6 +189,11 @@
 
   /* SECONDARY */
   .glass-faint {
+    /* Explicit: form controls do NOT default to a transparent
+       background the way a div does, so a tier that sets only
+       background-image would let the UA's `buttonface` / `field`
+       colour show through. .btn-ghost composes this onto a <button>. */
+    background-color: transparent;
     background-image: linear-gradient(
       158deg,
       rgba(255, 244, 248, 0.06) 0%,
@@ -179,6 +209,11 @@
 
   /* PRIMARY — the default card, used across ~44 screens. */
   .glass-surface {
+    /* Explicit: form controls do NOT default to a transparent
+       background the way a div does, so a tier that sets only
+       background-image would let the UA's `buttonface` / `field`
+       colour show through. .btn-ghost composes this onto a <button>. */
+    background-color: transparent;
     background-image: linear-gradient(
       158deg,
       rgba(255, 244, 248, 0.11) 0%,
@@ -196,6 +231,11 @@
 
   /* ELEVATED — the hero surface: QR panels, balances. */
   .glass-elevated {
+    /* Explicit: form controls do NOT default to a transparent
+       background the way a div does, so a tier that sets only
+       background-image would let the UA's `buttonface` / `field`
+       colour show through. .btn-ghost composes this onto a <button>. */
+    background-color: transparent;
     background-image: linear-gradient(
       158deg,
       rgba(255, 246, 250, 0.15) 0%,
@@ -214,6 +254,11 @@
 
   /* FLOATING — detached from the page: nav dock, sheets, modals. */
   .glass-floating {
+    /* Explicit: form controls do NOT default to a transparent
+       background the way a div does, so a tier that sets only
+       background-image would let the UA's `buttonface` / `field`
+       colour show through. .btn-ghost composes this onto a <button>. */
+    background-color: transparent;
     background-image: linear-gradient(
       158deg,
       rgba(48, 34, 46, 0.74) 0%,
@@ -280,6 +325,12 @@
   .input-glass {
     @apply w-full rounded-2xl px-4 py-3.5 text-sm text-ink
       placeholder:text-ink-faint outline-none transition-all duration-200;
+    /* A real tint, not `transparent`: an input must guarantee contrast
+       for the text being typed into it, whatever the atmosphere is
+       doing behind. This is the line whose absence made entered text
+       invisible - the UA `field` colour (white) was showing through a
+       translucent gradient, under white text. */
+    background-color: rgba(26, 18, 25, 0.42);
     background-image: linear-gradient(
       158deg,
       rgba(255, 244, 248, 0.09) 0%,
