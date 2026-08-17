@@ -22,7 +22,7 @@ export function PageHeader({ title, subtitle, onBack, showBack = true, trailing 
           <button
             onClick={onBack ?? (() => router.back())}
             aria-label="Go back"
-            className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full glass-surface"
+            className="tap-target mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full glass-surface"
           >
             <ChevronLeft className="h-4.5 w-4.5" />
           </button>

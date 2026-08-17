@@ -23,7 +23,8 @@ import {
   recordFeePayment,
 } from "@/services/fee-service";
 import type { ClassEntity, FeePayment, FeePaymentMethod, FeeStructure, StudentProfile, UserProfile } from "@/types";
-import { IndianRupee, Receipt, Plus } from "lucide-react";
+import { IndianRupee, Receipt, Plus } from "lucide-react";
+import { Stat } from "@/components/ui/Stat";
 
 const TABS = ["structures", "record"] as const;
 type Tab = (typeof TABS)[number];
@@ -287,14 +288,5 @@ export default function AdminFeesPage() {
         )}
       </AppShell>
     </AuthGuard>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0 flex-1 px-3 py-4 text-center">
-      <p className="truncate text-base font-bold text-ink">{value}</p>
-      <p className="text-[11px] text-ink-faint">{label}</p>
-    </div>
   );
 }

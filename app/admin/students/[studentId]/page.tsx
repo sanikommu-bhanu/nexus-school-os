@@ -13,7 +13,8 @@ import { getStudentProfile } from "@/services/student-service";
 import { getUserProfiles } from "@/services/user-service";
 import { getClassById } from "@/services/class-service";
 import { getAttendanceForStudent, summarizeAttendance } from "@/services/attendance-service";
-import type { ClassEntity, StudentProfile, UserProfile } from "@/types";
+import type { ClassEntity, StudentProfile, UserProfile } from "@/types";
+import { Stat } from "@/components/ui/Stat";
 
 export default function AdminStudentDetailPage() {
   const { studentId } = useParams<{ studentId: string }>();
@@ -68,9 +69,9 @@ export default function AdminStudentDetailPage() {
             </div>
 
             <GlassSurface rounded="2xl" className="flex divide-x divide-white/8" padded={false}>
-              <Stat label="Attendance" value={attendance && attendance.total > 0 ? `${attendance.percentPresent}%` : "—"} />
-              <Stat label="Present" value={attendance?.present ?? 0} />
-              <Stat label="Absent" value={attendance?.absent ?? 0} />
+              <Stat size="lg" label="Attendance" value={attendance && attendance.total > 0 ? `${attendance.percentPresent}%` : "—"} />
+              <Stat size="lg" label="Present" value={attendance?.present ?? 0} />
+              <Stat size="lg" label="Absent" value={attendance?.absent ?? 0} />
             </GlassSurface>
 
             <GlassSurface rounded="2xl" className="mt-5 flex flex-col divide-y divide-white/8" padded={false}>
@@ -83,15 +84,6 @@ export default function AdminStudentDetailPage() {
         )}
       </AppShell>
     </AuthGuard>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="min-w-0 flex-1 px-3 py-4 text-center">
-      <p className="text-lg font-bold text-ink">{value}</p>
-      <p className="text-[11px] text-ink-faint">{label}</p>
-    </div>
   );
 }
 function Row({ label, value }: { label: string; value: string }) {

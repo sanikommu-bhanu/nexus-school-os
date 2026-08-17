@@ -53,7 +53,7 @@ export function SmartSearchBar({ ctx }: { ctx: AiContext }) {
       <button
         onClick={() => setOpen(true)}
         aria-label="Smart Search"
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full glass-surface active:scale-95 transition-transform"
+        className="tap-target flex h-9 w-9 shrink-0 items-center justify-center rounded-full glass-surface active:scale-95 transition-transform"
       >
         <Search className="h-4 w-4 text-ink-muted" />
       </button>

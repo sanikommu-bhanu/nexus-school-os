@@ -18,7 +18,8 @@ import { getAttendanceForClassRange, summarizeAttendance } from "@/services/atte
 import { getAssignmentsForClass } from "@/services/assignment-service";
 import type { ClassEntity, UserProfile } from "@/types";
 import { Users, FileText, CalendarClock } from "lucide-react";
-import Link from "next/link";
+import Link from "next/link";
+import { Stat } from "@/components/ui/Stat";
 
 export default function AdminClassDetailPage() {
   const { classId } = useParams<{ classId: string }>();
@@ -71,9 +72,9 @@ export default function AdminClassDetailPage() {
         ) : (
           <>
             <GlassSurface rounded="2xl" className="flex divide-x divide-white/8" padded={false}>
-              <Stat label="Students" value={cls.studentCount} />
-              <Stat label="Attendance" value={attendancePct !== null ? `${attendancePct}%` : "—"} />
-              <Stat label="Assignments" value={assignmentCount} />
+              <Stat size="lg" label="Students" value={cls.studentCount} />
+              <Stat size="lg" label="Attendance" value={attendancePct !== null ? `${attendancePct}%` : "—"} />
+              <Stat size="lg" label="Assignments" value={assignmentCount} />
             </GlassSurface>
 
             <div className="mt-6">
@@ -111,14 +112,5 @@ export default function AdminClassDetailPage() {
         )}
       </AppShell>
     </AuthGuard>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="min-w-0 flex-1 px-3 py-4 text-center">
-      <p className="text-lg font-bold text-ink">{value}</p>
-      <p className="text-[11px] text-ink-faint">{label}</p>
-    </div>
   );
 }

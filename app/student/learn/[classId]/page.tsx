@@ -20,6 +20,7 @@ import { getAnnouncementsForClass } from "@/services/announcement-service";
 import { getOrCreateConversation } from "@/services/messaging-service";
 import type { Announcement, Assignment, ClassEntity, DocumentMeta, SubmissionStatus } from "@/types";
 import { FileText, MessageCircle, Megaphone, Check } from "lucide-react";
+import { Stat } from "@/components/ui/Stat";
 
 /** Badge tone + label for a submission state. "pending" is the seeded default. */
 function submissionBadge(status: SubmissionStatus | undefined) {
@@ -137,8 +138,8 @@ export default function StudentClassDetailPage() {
         ) : (
           <>
             <GlassSurface rounded="2xl" className="flex divide-x divide-white/8" padded={false}>
-              <Stat label="Teacher" value={teacherName ?? "—"} />
-              <Stat label="Attendance" value={attendancePct !== null ? `${attendancePct}%` : "—"} />
+              <Stat size="lg" label="Teacher" value={teacherName ?? "—"} />
+              <Stat size="lg" label="Attendance" value={attendancePct !== null ? `${attendancePct}%` : "—"} />
             </GlassSurface>
 
             <div className="mt-4">
@@ -231,14 +232,5 @@ export default function StudentClassDetailPage() {
         )}
       </AppShell>
     </AuthGuard>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="min-w-0 flex-1 px-3 py-4 text-center">
-      <p className="truncate text-lg font-bold text-ink">{value}</p>
-      <p className="text-[11px] text-ink-faint">{label}</p>
-    </div>
   );
 }

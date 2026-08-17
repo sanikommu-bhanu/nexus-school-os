@@ -20,7 +20,8 @@ import { getTimetableForClass, groupByDay } from "@/services/timetable-service";
 import { subscribeToNotifications } from "@/services/notification-service";
 import { ExplainableInsightCard } from "@/components/ai/ExplainableInsightCard";
 import type { Assignment, ClassEntity, NotificationItem, TimetableSlot, Weekday } from "@/types";
-import { Sparkles, CalendarClock, BookOpen, IndianRupee, TrendingDown, TrendingUp } from "lucide-react";
+import { Sparkles, CalendarClock, BookOpen, IndianRupee, TrendingDown, TrendingUp } from "lucide-react";
+import { Stat } from "@/components/ui/Stat";
 
 function todayCode(): Weekday {
   return (["SU", "MO", "TU", "WE", "TH", "FR", "SA"][new Date().getDay()] as Weekday) ?? "MO";
@@ -102,9 +103,9 @@ export default function StudentPage() {
         ) : (
           <>
             <GlassSurface rounded="2xl" className="flex divide-x divide-white/8" padded={false}>
-              <Stat label="Class" value={cls?.name ?? "—"} />
-              <Stat label="Attendance" value={attendancePct !== null ? `${attendancePct}%` : "—"} />
-              <Stat label="Assignments" value={assignments.length} />
+              <Stat size="lg" label="Class" value={cls?.name ?? "—"} />
+              <Stat size="lg" label="Attendance" value={attendancePct !== null ? `${attendancePct}%` : "—"} />
+              <Stat size="lg" label="Assignments" value={assignments.length} />
             </GlassSurface>
 
             <SectionHeader title="Today's Schedule" />
@@ -169,14 +170,5 @@ export default function StudentPage() {
         )}
       </AppShell>
     </AuthGuard>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="min-w-0 flex-1 px-3 py-4 text-center">
-      <p className="truncate text-lg font-bold text-ink">{value}</p>
-      <p className="text-[11px] text-ink-faint">{label}</p>
-    </div>
   );
 }

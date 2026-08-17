@@ -62,7 +62,7 @@ export function QRDisplay({ value, code, label = "Code", size = 176 }: QRDisplay
           <button
             onClick={handleCopy}
             aria-label="Copy code"
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-white/8"
+            className="tap-target flex h-9 w-9 items-center justify-center rounded-full bg-white/8"
           >
             {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4 text-ink-muted" />}
           </button>

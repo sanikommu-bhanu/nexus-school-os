@@ -58,7 +58,7 @@ export function MessagesListScreen({ role, newHref }: { role: Role; newHref?: st
           showBack={false}
           trailing={
             newHref ? (
-              <Link href={newHref} aria-label="New message" className="flex h-9 w-9 items-center justify-center rounded-full glass-surface">
+              <Link href={newHref} aria-label="New message" className="tap-target flex h-9 w-9 items-center justify-center rounded-full glass-surface">
                 <SquarePen className="h-4 w-4 text-ink-muted" />
               </Link>
             ) : undefined

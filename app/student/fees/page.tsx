@@ -12,7 +12,8 @@ import { useAuthUser } from "@/hooks/useAuthUser";
 import { getStudentProfile } from "@/services/student-service";
 import { getFeeStructuresForClass, getPaymentsForStudent, summarizeStudentFees } from "@/services/fee-service";
 import type { StudentFeeSummary } from "@/services/fee-service";
-import { Receipt, IndianRupee } from "lucide-react";
+import { Receipt, IndianRupee } from "lucide-react";
+import { Stat } from "@/components/ui/Stat";
 
 export default function StudentFeesPage() {
   const { profile } = useAuthUser();
@@ -81,14 +82,5 @@ export default function StudentFeesPage() {
         )}
       </AppShell>
     </AuthGuard>
-  );
-}
-
-function Stat({ label, value, tone }: { label: string; value: string; tone?: "warning" | "success" }) {
-  return (
-    <div className="min-w-0 flex-1 px-3 py-4 text-center">
-      <p className={`truncate text-base font-bold ${tone === "warning" ? "text-warning" : tone === "success" ? "text-success" : "text-ink"}`}>{value}</p>
-      <p className="text-[11px] text-ink-faint">{label}</p>
-    </div>
   );
 }

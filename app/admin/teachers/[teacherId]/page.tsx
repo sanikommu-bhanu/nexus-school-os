@@ -14,7 +14,8 @@ import { getTeacherProfile } from "@/services/teacher-service";
 import { getUserProfiles } from "@/services/user-service";
 import { getClassById } from "@/services/class-service";
 import type { ClassEntity, TeacherProfile, UserProfile } from "@/types";
-import { Layers } from "lucide-react";
+import { Layers } from "lucide-react";
+import { Stat } from "@/components/ui/Stat";
 
 export default function TeacherDetailPage() {
   const { teacherId } = useParams<{ teacherId: string }>();
@@ -66,8 +67,8 @@ export default function TeacherDetailPage() {
             </div>
 
             <GlassSurface rounded="2xl" className="flex divide-x divide-white/8" padded={false}>
-              <Stat label="Classes" value={classes.length} />
-              <Stat label="Students" value={classes.reduce((a, c) => a + c.studentCount, 0)} />
+              <Stat size="xl" label="Classes" value={classes.length} />
+              <Stat size="xl" label="Students" value={classes.reduce((a, c) => a + c.studentCount, 0)} />
             </GlassSurface>
 
             <div className="mt-6">
@@ -102,14 +103,5 @@ export default function TeacherDetailPage() {
         )}
       </AppShell>
     </AuthGuard>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="min-w-0 flex-1 px-4 py-4 text-center">
-      <p className="text-xl font-bold text-ink">{value}</p>
-      <p className="text-xs text-ink-faint">{label}</p>
-    </div>
   );
 }

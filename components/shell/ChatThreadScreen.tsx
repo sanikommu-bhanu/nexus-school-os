@@ -127,7 +127,7 @@ export function ChatThreadScreen({ role }: { role: Role }) {
               onClick={handleSend}
               disabled={sending || !text.trim()}
               aria-label="Send"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-white transition-opacity disabled:opacity-40"
+              className="tap-target flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-white transition-opacity disabled:opacity-40"
             >
               <Send className="h-4 w-4" />
             </button>

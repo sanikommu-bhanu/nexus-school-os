@@ -20,7 +20,8 @@ import { getOrCreateConversation } from "@/services/messaging-service";
 import { getFeeStructuresForClass, getPaymentsForStudent, summarizeStudentFees, type StudentFeeSummary } from "@/services/fee-service";
 import { ExplainableInsightCard } from "@/components/ai/ExplainableInsightCard";
 import type { Announcement } from "@/types";
-import { ChevronDown, Megaphone, MessageCircle, IndianRupee, TrendingDown, TrendingUp } from "lucide-react";
+import { ChevronDown, Megaphone, MessageCircle, IndianRupee, TrendingDown, TrendingUp } from "lucide-react";
+import { Stat } from "@/components/ui/Stat";
 
 export default function ParentPage() {
   const { profile, refresh } = useAuthUser();
@@ -145,9 +146,9 @@ export default function ParentPage() {
                 </div>
 
                 <GlassSurface rounded="2xl" className="mt-5 flex divide-x divide-white/8" padded={false}>
-                  <Stat label="Attendance" value={child.attendancePct !== null ? `${child.attendancePct}%` : "—"} />
-                  <Stat label="Assignments" value={`${child.pendingAssignments} pending`} />
-                  <Stat label="Next class" value={child.nextClass ? `${child.nextClass.subject} ${child.nextClass.startTime}` : "—"} />
+                  <Stat size="sm" label="Attendance" value={child.attendancePct !== null ? `${child.attendancePct}%` : "—"} />
+                  <Stat size="sm" label="Assignments" value={`${child.pendingAssignments} pending`} />
+                  <Stat size="sm" label="Next class" value={child.nextClass ? `${child.nextClass.subject} ${child.nextClass.startTime}` : "—"} />
                 </GlassSurface>
 
                 {child.attendanceTrend.delta !== null && Math.abs(child.attendanceTrend.delta) >= 5 && (
@@ -234,14 +235,5 @@ export default function ParentPage() {
         )}
       </AppShell>
     </AuthGuard>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="min-w-0 flex-1 px-3 py-4 text-center">
-      <p className="truncate text-sm font-bold text-ink">{value}</p>
-      <p className="text-[11px] text-ink-faint">{label}</p>
-    </div>
   );
 }

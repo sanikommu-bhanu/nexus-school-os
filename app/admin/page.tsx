@@ -91,7 +91,10 @@ export default function AdminPage() {
         ) : (
           <>
             <SectionHeader title="School Pulse" />
-            <div className="grid grid-cols-2 gap-3">
+            {/* 2-up on phones, 4-up from md. These cards are compact, so
+                one row of four reads as a proper dashboard header on a
+                laptop instead of a stacked phone column. */}
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <MetricCard label="Students" value={pulse.students} />
               <MetricCard label="Teachers" value={pulse.teachers} />
               <MetricCard label="Classes" value={pulse.classes} />
@@ -150,7 +153,7 @@ export default function AdminPage() {
             )}
 
             <SectionHeader title="Quick Actions" />
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <QuickAction href="/admin/school?tab=teachers" icon={UserPlus} label="Add Teacher" />
               <QuickAction href="/admin/classes?new=1" icon={FolderPlus} label="Create Class" />
               <QuickAction href="/admin/operations" icon={ClipboardCheck} label="View Attendance" />

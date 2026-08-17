@@ -458,7 +458,9 @@
 
   @media (min-width: 1024px) {
     .screen-frame {
-      @apply max-w-[680px];
+      /* Wide enough for a four-across metric row to breathe, still a
+         readable measure for the single-column screens. */
+      @apply max-w-[820px];
       padding-left: max(2.5rem, env(safe-area-inset-left));
       padding-right: max(2.5rem, env(safe-area-inset-right));
     }
@@ -472,6 +474,25 @@
   .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
+  }
+
+  /* Expands a control's HIT AREA to the 44x44px minimum recommended by
+     WCAG 2.5.5 / the iOS HIG, without changing how big it LOOKS.
+
+     Several icon buttons are visually 36px, which is correct for a
+     dense glass UI but under the target size — and simply setting
+     min-height on them would stretch a circle into an oval. A
+     transparent pseudo-element extends the tappable region by 4px on
+     every side instead: 36 + 4 + 4 = 44. The inset is deliberately
+     small so adjacent controls cannot swallow each other's taps. */
+  .tap-target {
+    position: relative;
+  }
+  .tap-target::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    border-radius: inherit;
   }
 
   /* Blush gradient text for hero numerals and key headings. */
