@@ -82,4 +82,22 @@ export const auth: Auth | null = instances?.auth ?? null;
 export const db: Firestore | null = instances?.db ?? null;
 export const googleProvider = new GoogleAuthProvider();
 
+// Force Google's account chooser on EVERY sign-in.
+//
+// Firebase's signOut() ends the Firebase session but has no effect on
+// the Google session in the browser. Without this parameter Google sees
+// exactly one signed-in account, skips the chooser entirely, and
+// silently re-authenticates that same account — so after signing out,
+// picking a different role and tapping "Continue with Google" logs you
+// straight back in as the previous user. There is no way to pick
+// another account, which makes multi-role testing (and a shared demo
+// device) impossible.
+//
+// `select_account` always shows the picker, so a different account can
+// actually be chosen. Note this is separate from role immutability:
+// a given account keeps the role it was created with by design (see
+// firestore.rules), so switching ROLE means switching ACCOUNT — which
+// is precisely what this unblocks.
+googleProvider.setCustomParameters({ prompt: "select_account" });
+
 export const isFirebaseConfigured = Boolean(app);
