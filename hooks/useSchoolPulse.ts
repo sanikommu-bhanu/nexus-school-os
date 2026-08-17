@@ -11,6 +11,8 @@ import {
 export interface SchoolPulseView {
   pulse: SchoolPulse | null;
   trends: ClassTrend[];
+  /** Active teacher user-ids, straight from the live member list. */
+  teacherIds: string[];
   loading: boolean;
   error: string | null;
 }
@@ -48,11 +50,19 @@ export function useSchoolPulse(schoolId: string | null | undefined): SchoolPulse
     [loading, members, classes, attendanceToday]
   );
 
+  // Removed members must not linger in staffing maths, hence the
+  // status filter — `role === "teacher"` alone would keep counting
+  // someone who has left the school.
+  const teacherIds = useMemo(
+    () => members.filter((m) => m.role === "teacher" && m.status === "active").map((m) => m.userId),
+    [members]
+  );
+
   useEffect(() => {
     if (!schoolId) return;
     connect(schoolId);
     return () => release();
   }, [schoolId, connect, release]);
 
-  return { pulse, trends, loading: schoolId ? loading : true, error };
+  return { pulse, trends, teacherIds, loading: schoolId ? loading : true, error };
 }

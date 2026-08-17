@@ -11,9 +11,11 @@ import { LoadingState, ErrorState } from "@/components/ui/States";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { useSchoolPulse } from "@/hooks/useSchoolPulse";
 import { subscribeToNotifications } from "@/services/notification-service";
+import { getWorkloadReport, type WorkloadReport } from "@/services/workload-service";
+import { getUserProfiles } from "@/services/user-service";
 import { ExplainableInsightCard } from "@/components/ai/ExplainableInsightCard";
 import type { NotificationItem } from "@/types";
-import { UserPlus, FolderPlus, ClipboardCheck, UploadCloud, TrendingDown, CheckCircle2, Bell } from "lucide-react";
+import { UserPlus, FolderPlus, ClipboardCheck, UploadCloud, TrendingDown, CheckCircle2, Bell, Scale } from "lucide-react";
 
 export default function AdminPage() {
   const { profile } = useAuthUser();
@@ -23,7 +25,7 @@ export default function AdminPage() {
   // updates this dashboard without a refresh. Replaces the one-shot
   // read-on-mount this screen used to do. The arithmetic behind these
   // figures is unchanged — see derivePulse in the store.
-  const { pulse, trends: lowAttendance, loading, error: loadError } = useSchoolPulse(profile?.schoolId);
+  const { pulse, trends: lowAttendance, teacherIds, loading, error: loadError } = useSchoolPulse(profile?.schoolId);
 
   const [activity, setActivity] = useState<NotificationItem[]>([]);
 
@@ -31,6 +33,43 @@ export default function AdminPage() {
     if (!profile?.schoolId || !profile.id) return;
     return subscribeToNotifications(profile.schoolId, profile.id, setActivity);
   }, [profile?.schoolId, profile?.id]);
+
+  // Staff workload. Recomputed when the live member list changes, which
+  // is exactly when the answer can change. Read-only and best-effort: a
+  // failure here leaves the rest of the dashboard untouched.
+  const [workload, setWorkload] = useState<WorkloadReport | null>(null);
+  const [teacherNames, setTeacherNames] = useState<Map<string, string>>(new Map());
+  const teacherIdKey = teacherIds.join(",");
+
+  useEffect(() => {
+    if (!profile?.schoolId || teacherIds.length === 0) {
+      setWorkload(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const report = await getWorkloadReport(profile.schoolId!, teacherIds);
+        if (cancelled) return;
+        setWorkload(report);
+        if (report.suggestions.length > 0) {
+          const profiles = await getUserProfiles(teacherIds);
+          if (cancelled) return;
+          setTeacherNames(new Map([...profiles].map(([id, p]) => [id, p.fullName])));
+        }
+      } catch {
+        if (!cancelled) setWorkload(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // teacherIdKey is a stable string of the same ids — depending on the
+    // array itself would refire on every snapshot that rebuilds it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.schoolId, teacherIdKey]);
+
+  const nameOf = (id: string) => teacherNames.get(id) ?? "A teacher";
 
   return (
     <AuthGuard allowRoles={["admin"]}>
@@ -64,7 +103,7 @@ export default function AdminPage() {
             </div>
 
             <SectionHeader title="NEXUS Intelligence" />
-            {lowAttendance.length === 0 ? (
+            {lowAttendance.length === 0 && (workload?.suggestions.length ?? 0) === 0 ? (
               <InsightCard
                 icon={<CheckCircle2 className="h-4.5 w-4.5" />}
                 title="Everything looks good"
@@ -91,6 +130,22 @@ export default function AdminPage() {
                     ]}
                   />
                 ))}
+
+                {workload && workload.suggestions.length > 0 && (
+                  <ExplainableInsightCard
+                    icon={<Scale className="h-4.5 w-4.5" />}
+                    title="Teaching load is uneven"
+                    tone="accent"
+                    whatChanged={`${nameOf(workload.suggestions[0].fromTeacherId)} is on ${workload.suggestions[0].fromLoad} periods a week against a staff average of ${workload.analysis.meanPeriods} — a spread of ${workload.analysis.spread} periods across the team.`}
+                    whyItMatters="A lopsided timetable is the usual root cause of missed marking, burnout and last-minute cover requests. Rebalancing early is far cheaper than finding a substitute on the morning."
+                    whatCanIDo={[
+                      {
+                        label: `Move ${workload.suggestions[0].subject} to ${nameOf(workload.suggestions[0].toTeacherId)}`,
+                        href: `/admin/classes/${workload.suggestions[0].classId}/timetable`,
+                      },
+                    ]}
+                  />
+                )}
               </div>
             )}
 
