@@ -44,10 +44,11 @@ export function useSchoolPulse(schoolId: string | null | undefined): SchoolPulse
   const members = useSchoolPulseStore((s) => s.members);
   const classes = useSchoolPulseStore((s) => s.classes);
   const attendanceToday = useSchoolPulseStore((s) => s.attendanceToday);
+  const totals = useSchoolPulseStore((s) => s.totals);
 
   const pulse = useMemo(
-    () => (loading ? null : derivePulse({ members, classes, attendanceToday })),
-    [loading, members, classes, attendanceToday]
+    () => (loading ? null : derivePulse({ members, classes, attendanceToday, totals })),
+    [loading, members, classes, attendanceToday, totals]
   );
 
   // Removed members must not linger in staffing maths, hence the

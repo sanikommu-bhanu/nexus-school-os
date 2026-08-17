@@ -5,7 +5,7 @@
 // each just filters the same source of truth differently.
 // ============================================================
 import { db } from "@/lib/firebase";
-import { doc, setDoc, collection, query, where, getDocs, serverTimestamp, deleteDoc } from "firebase/firestore";
+import { doc, setDoc, collection, query, where, getDocs, limit, serverTimestamp, deleteDoc } from "firebase/firestore";
 import {
   findConflicts,
   suggestAlternativeSlots,
@@ -13,6 +13,7 @@ import {
   type SlotSuggestion,
 } from "@/lib/timetable-conflicts";
 import { stripUndefined } from "@/lib/utils";
+import { MAX_TIMETABLE } from "@/lib/query-bounds";
 import { WEEKDAYS } from "@/types";
 import type { TimetableSlot, Weekday } from "@/types";
 
@@ -43,9 +44,10 @@ export async function deleteTimetableSlot(schoolId: string, slotId: string): Pro
   await deleteDoc(doc(db, "schools", schoolId, "timetable", slotId));
 }
 
+/** BOUNDED: a full week across every class. See lib/query-bounds.ts. */
 export async function getSchoolTimetable(schoolId: string): Promise<TimetableSlot[]> {
   if (!db) return [];
-  const snap = await getDocs(collection(db, "schools", schoolId, "timetable"));
+  const snap = await getDocs(query(collection(db, "schools", schoolId, "timetable"), limit(MAX_TIMETABLE)));
   return snap.docs.map((d) => d.data() as TimetableSlot);
 }
 
@@ -133,8 +135,10 @@ export async function suggestConflictFreeSlots(
 ): Promise<SlotSuggestion[]> {
   if (!db) return [];
 
-  // The whole week, because a resolution may well be on another day.
-  const all = await getDocs(collection(db, "schools", schoolId, "timetable"));
+  // The whole week, because a resolution may well be on another day —
+  // bounded all the same, so one pathological school cannot make this
+  // query unbounded.
+  const all = await getDocs(query(collection(db, "schools", schoolId, "timetable"), limit(MAX_TIMETABLE)));
   const existing = all.docs.map((d) => d.data() as TimetableSlot);
 
   return suggestAlternativeSlots(

@@ -17,10 +17,12 @@ import {
   query,
   where,
   getDocs,
+  limit,
   serverTimestamp,
   orderBy,
 } from "firebase/firestore";
 import { stripUndefined } from "@/lib/utils";
+import { MAX_LEDGER } from "@/lib/query-bounds";
 import type { FeePayment, FeePaymentMethod, FeeStructure } from "@/types";
 
 export async function createFeeStructure(
@@ -90,9 +92,14 @@ export async function getPaymentsForStudent(schoolId: string, studentId: string)
     .sort((a, b) => new Date(b.paidAt).getTime() - new Date(a.paidAt).getTime());
 }
 
-export async function getAllPaymentsForSchool(schoolId: string): Promise<FeePayment[]> {
+/**
+ * A BOUNDED page of payments. This collection is append-only and grows
+ * for the life of the school, so reading it whole was the worst of the
+ * unbounded queries — it gets slower and more expensive every term.
+ */
+export async function getAllPaymentsForSchool(schoolId: string, max = MAX_LEDGER): Promise<FeePayment[]> {
   if (!db) return [];
-  const snap = await getDocs(collection(db, "schools", schoolId, "feePayments"));
+  const snap = await getDocs(query(collection(db, "schools", schoolId, "feePayments"), limit(max)));
   return snap.docs.map((d) => d.data() as FeePayment);
 }
 

@@ -14,6 +14,7 @@ import {
   query,
   where,
   getDocs,
+  limit,
   serverTimestamp,
   writeBatch,
   orderBy,
@@ -21,6 +22,7 @@ import {
 import { getClassMembers } from "@/services/class-service";
 import { createNotification } from "@/services/notification-service";
 import { stripUndefined } from "@/lib/utils";
+import { MAX_LEDGER } from "@/lib/query-bounds";
 import type { Assignment, AssignmentSubmission, SubmissionStatus } from "@/types";
 
 export async function createAssignment(
@@ -102,7 +104,9 @@ export async function getSubmissionsForAssignment(
   assignmentId: string
 ): Promise<AssignmentSubmission[]> {
   if (!db) return [];
-  const snap = await getDocs(collection(db, "schools", schoolId, "assignments", assignmentId, "submissions"));
+  const snap = await getDocs(
+    query(collection(db, "schools", schoolId, "assignments", assignmentId, "submissions"), limit(MAX_LEDGER))
+  );
   return snap.docs.map((d) => d.data() as AssignmentSubmission);
 }
 

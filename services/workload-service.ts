@@ -8,8 +8,9 @@
 // screen validates against.
 // ============================================================
 import { db } from "@/lib/firebase";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, query, limit } from "firebase/firestore";
 import { findConflicts } from "@/lib/timetable-conflicts";
+import { MAX_TIMETABLE } from "@/lib/query-bounds";
 import {
   computeTeacherLoads,
   analyseWorkload,
@@ -24,7 +25,7 @@ type SlotWithId = TimetableSlot & { id: string };
 
 async function loadSlots(schoolId: string): Promise<SlotWithId[]> {
   if (!db) return [];
-  const snap = await getDocs(collection(db, "schools", schoolId, "timetable"));
+  const snap = await getDocs(query(collection(db, "schools", schoolId, "timetable"), limit(MAX_TIMETABLE)));
   return snap.docs.map((d) => d.data() as SlotWithId);
 }
 

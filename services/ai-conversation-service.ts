@@ -10,6 +10,7 @@
 // ============================================================
 import { db } from "@/lib/firebase";
 import { doc, setDoc, deleteDoc, collection, query, orderBy, limit as fbLimit, getDocs, serverTimestamp, writeBatch } from "firebase/firestore";
+import { MAX_THREAD } from "@/lib/query-bounds";
 import type { AiMessageRecord } from "@/types";
 
 const HISTORY_LIMIT = 40; // most-recent turns kept — enough context, bounded read cost
@@ -54,7 +55,9 @@ export async function appendConversationMessage(
 /** Clears a user's own conversation history — the "New conversation" action. */
 export async function clearConversationHistory(schoolId: string, uid: string): Promise<void> {
   if (!db) return;
-  const snap = await getDocs(collection(db, "schools", schoolId, "aiConversations", uid, "messages"));
+  const snap = await getDocs(
+    query(collection(db, "schools", schoolId, "aiConversations", uid, "messages"), fbLimit(MAX_THREAD))
+  );
   const BATCH_LIMIT = 450;
   for (let i = 0; i < snap.docs.length; i += BATCH_LIMIT) {
     const batch = writeBatch(db);

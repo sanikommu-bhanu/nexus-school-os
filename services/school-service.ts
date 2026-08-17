@@ -13,10 +13,12 @@ import {
   where,
   getDocs,
   onSnapshot,
+  limit,
   serverTimestamp,
   type Unsubscribe,
 } from "firebase/firestore";
 import { generateJoinCode } from "@/lib/utils";
+import { MAX_ROSTER, countOf } from "@/lib/query-bounds";
 import type { School, SchoolMember, Role } from "@/types";
 
 export async function createSchool(
@@ -193,10 +195,33 @@ export async function addSchoolMember(
   return { alreadyMember: false };
 }
 
-export async function getSchoolMembers(schoolId: string): Promise<SchoolMember[]> {
+/**
+ * A BOUNDED page of members. See lib/query-bounds.ts for why every
+ * list read in this app carries a ceiling — and use `countSchoolMembers`
+ * when you want a total, never `getSchoolMembers(...).length`.
+ */
+export async function getSchoolMembers(schoolId: string, max = MAX_ROSTER): Promise<SchoolMember[]> {
   if (!db) return [];
-  const snap = await getDocs(collection(db, "schools", schoolId, "members"));
+  const snap = await getDocs(query(collection(db, "schools", schoolId, "members"), limit(max)));
   return snap.docs.map((d) => d.data() as SchoolMember);
+}
+
+/**
+ * Exact member counts per role, as a server-side aggregation — no
+ * documents downloaded. This is what keeps the dashboard's headline
+ * figures true for a 5,000-student school while the list stays bounded.
+ */
+export async function countSchoolMembers(
+  schoolId: string
+): Promise<{ students: number; teachers: number; total: number }> {
+  if (!db) return { students: 0, teachers: 0, total: 0 };
+  const members = collection(db, "schools", schoolId, "members");
+  const [students, teachers, total] = await Promise.all([
+    countOf(query(members, where("role", "==", "student"))),
+    countOf(query(members, where("role", "==", "teacher"))),
+    countOf(members),
+  ]);
+  return { students, teachers, total };
 }
 
 /**
@@ -217,8 +242,12 @@ export function subscribeToSchoolMembers(
   onError?: (err: Error) => void
 ): Unsubscribe {
   if (!db) return () => {};
+  // Bounded like every other read. An onSnapshot over an unbounded
+  // collection is a PERSISTENT unbounded read — strictly worse than a
+  // one-off — so the stream carries the same ceiling. Exact totals come
+  // from countSchoolMembers, not from this array's length.
   return onSnapshot(
-    collection(db, "schools", schoolId, "members"),
+    query(collection(db, "schools", schoolId, "members"), limit(MAX_ROSTER)),
     (snap) => onChange(snap.docs.map((d) => d.data() as SchoolMember)),
     (err) => onError?.(err)
   );

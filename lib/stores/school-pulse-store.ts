@@ -31,8 +31,8 @@
 // stop updating.
 // ============================================================
 import { create } from "zustand";
-import { subscribeToSchoolMembers } from "@/services/school-service";
-import { subscribeToClassesForSchool } from "@/services/class-service";
+import { subscribeToSchoolMembers, countSchoolMembers } from "@/services/school-service";
+import { subscribeToClassesForSchool, countClasses } from "@/services/class-service";
 import {
   subscribeToClassAttendanceToday,
   getAttendanceForClassRange,
@@ -64,6 +64,13 @@ interface SchoolPulseState {
 
   members: SchoolMember[];
   classes: ClassEntity[];
+  /**
+   * Exact totals from a server-side aggregation, NOT from
+   * members.length. The live arrays are deliberately bounded (see
+   * lib/query-bounds.ts), so their length is a page size, not a total.
+   * Null until the first count returns.
+   */
+  totals: { students: number; teachers: number; classes: number } | null;
   /** classId -> today's records, kept live. */
   attendanceToday: Record<string, AttendanceRecord[]>;
   trends: ClassTrend[];
@@ -100,6 +107,7 @@ export const useSchoolPulseStore = create<SchoolPulseState>((set, get) => ({
   error: null,
   members: [],
   classes: [],
+  totals: null,
   attendanceToday: {},
   trends: [],
 
@@ -122,9 +130,17 @@ export const useSchoolPulseStore = create<SchoolPulseState>((set, get) => ({
       error: null,
       members: [],
       classes: [],
+      totals: null,
       attendanceToday: {},
       trends: [],
     });
+
+    // Exact totals, once, as aggregations — no documents downloaded.
+    void (async () => {
+      const [m, c] = await Promise.all([countSchoolMembers(schoolId), countClasses(schoolId)]);
+      if (myToken !== trendToken) return; // school switched or torn down
+      set({ totals: { students: m.students, teachers: m.teachers, classes: c } });
+    })();
 
     const fail = (err: Error) =>
       set({ loading: false, error: err.message || "Couldn't load your school's pulse." });
@@ -238,6 +254,8 @@ export interface PulseInputs {
   members: SchoolMember[];
   classes: ClassEntity[];
   attendanceToday: Record<string, AttendanceRecord[]>;
+  /** Exact aggregated totals; falls back to array length when absent. */
+  totals?: { students: number; teachers: number; classes: number } | null;
 }
 
 /**
@@ -254,10 +272,13 @@ export function derivePulse(state: PulseInputs): SchoolPulse {
     return acc + s.present + s.late * 0.5;
   }, 0);
 
+  // Prefer the aggregation. Counting the live arrays would silently
+  // under-report any school larger than the query ceiling — a bounded
+  // list and a true total are only compatible because of this.
   return {
-    students: state.members.filter((m) => m.role === "student").length,
-    teachers: state.members.filter((m) => m.role === "teacher").length,
-    classes: state.classes.length,
+    students: state.totals?.students ?? state.members.filter((m) => m.role === "student").length,
+    teachers: state.totals?.teachers ?? state.members.filter((m) => m.role === "teacher").length,
+    classes: state.totals?.classes ?? state.classes.length,
     attendanceToday: todayTotal > 0 ? Math.round((todayPresent / todayTotal) * 100) : 0,
   };
 }

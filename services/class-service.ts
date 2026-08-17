@@ -14,11 +14,13 @@ import {
   where,
   getDocs,
   onSnapshot,
+  limit,
   serverTimestamp,
   increment,
   runTransaction,
 } from "firebase/firestore";
 import { generateClassCode } from "@/lib/utils";
+import { MAX_ROSTER, countOf } from "@/lib/query-bounds";
 import { addSchoolMember } from "@/services/school-service";
 import type { ClassEntity, ClassMember } from "@/types";
 
@@ -195,10 +197,17 @@ export async function joinClassAsStudent(
   return { alreadyJoined: false };
 }
 
-export async function getClassesForSchool(schoolId: string): Promise<ClassEntity[]> {
+/** A BOUNDED page of classes. Use `countClasses` for a total. */
+export async function getClassesForSchool(schoolId: string, max = MAX_ROSTER): Promise<ClassEntity[]> {
   if (!db) return [];
-  const snap = await getDocs(collection(db, "schools", schoolId, "classes"));
+  const snap = await getDocs(query(collection(db, "schools", schoolId, "classes"), limit(max)));
   return snap.docs.map((d) => d.data() as ClassEntity);
+}
+
+/** Exact class count as a server-side aggregation — no documents read. */
+export async function countClasses(schoolId: string): Promise<number> {
+  if (!db) return 0;
+  return countOf(collection(db, "schools", schoolId, "classes"));
 }
 
 /**
@@ -212,8 +221,9 @@ export function subscribeToClassesForSchool(
   onError?: (err: Error) => void
 ): import("firebase/firestore").Unsubscribe {
   if (!db) return () => {};
+  // Bounded for the same reason as subscribeToSchoolMembers.
   return onSnapshot(
-    collection(db, "schools", schoolId, "classes"),
+    query(collection(db, "schools", schoolId, "classes"), limit(MAX_ROSTER)),
     (snap) => onChange(snap.docs.map((d) => d.data() as ClassEntity)),
     (err) => onError?.(err)
   );
@@ -229,6 +239,8 @@ export async function getClassesForTeacher(schoolId: string, teacherId: string):
 
 export async function getClassMembers(schoolId: string, classId: string): Promise<ClassMember[]> {
   if (!db) return [];
-  const snap = await getDocs(collection(db, "schools", schoolId, "classes", classId, "members"));
+  const snap = await getDocs(
+    query(collection(db, "schools", schoolId, "classes", classId, "members"), limit(MAX_ROSTER))
+  );
   return snap.docs.map((d) => d.data() as ClassMember);
 }
