@@ -17,6 +17,71 @@ merely looking strict.
 
 ---
 
+## Live Demo
+
+**Live application:** <https://nexus-school-os.vercel.app>
+**Repository:** <https://github.com/sanikommu-bhanu/nexus-school-os>
+
+Sign in with any of the four accounts below to explore NEXUS from that role's
+point of view. No setup, no local install.
+
+### Demo credentials
+
+| Role | Email | Password |
+|---|---|---|
+| Administrator | `demo.admin@nexus-demo.school` | `NexusAdmin!2026Demo` |
+| Teacher | `demo.teacher@nexus-demo.school` | `NexusTeacher!2026Demo` |
+| Student | `demo.student@nexus-demo.school` | `NexusStudent!2026Demo` |
+| Parent | `demo.parent@nexus-demo.school` | `NexusParent!2026Demo` |
+
+These are **fictional accounts created specifically for evaluating NEXUS**.
+They belong to a demonstration school — *NEXUS International School* — whose
+teachers, students, parents and families are invented. No real person's data
+appears anywhere in the demo, and these credentials grant access to nothing
+beyond that demo school.
+
+The demo data is **real records, not mocked numbers**. Attendance percentages,
+submission tallies, class sizes and fee balances are all computed by the same
+services and queries the production app uses, from actual Firestore documents —
+including a month of deliberately uneven attendance, so the analytics and the
+AI have something true to find rather than a flat 100%.
+
+### What each role demonstrates
+
+**Administrator** — the whole school ecosystem: teachers, classes, students,
+attendance trends, assignments, the timetable, policy documents, fee records,
+workload analysis and school-wide AI insights.
+
+**Teacher** — their own classes only: the student roster, marking and editing
+attendance, creating assignments and grading submissions, their teaching
+timetable, and teacher-scoped AI assistance.
+
+**Student** — their own record only: enrolled classes, personal attendance,
+assignments due and handed in, class timetable, shared documents, and
+student-scoped AI help.
+
+**Parent** — their linked children only: each child's attendance, assignment
+status, timetable, announcements and fee position, plus parent-scoped AI.
+
+> **Role isolation is enforced by Firestore security rules, not by the UI.**
+> A teacher cannot read another teacher's class, a student cannot read another
+> student's record, a parent sees only linked children, and no school can read
+> another school's data. NEXUS AI inherits exactly these boundaries — it answers
+> from permission-scoped tool calls, so it can never surface data the signed-in
+> user could not already open themselves. Signing in as each role in turn is the
+> quickest way to see that hold.
+
+### Prefer to see the real onboarding flow?
+
+The demo accounts above skip straight to populated dashboards. To watch the
+actual product flow instead, sign up as a new admin and follow
+create school → share the school code/QR → teacher joins → creates a class →
+student joins by class code/QR → parent connects to their child. That path is
+unchanged by the demo data and is described in
+[join and membership flows](#join-and-membership-flows).
+
+---
+
 ## System diagrams
 
 Six system-level diagrams are below. Four more detailed walkthroughs live

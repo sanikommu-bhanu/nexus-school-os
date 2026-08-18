@@ -39,6 +39,7 @@ import { chunkText } from "@/lib/ai/chunk";
 import { uploadToCloudinary, isCloudinaryConfigured } from "@/lib/cloudinary";
 import {
   ATTENDANCE_DAYS,
+  DEMO_ADMIN_EMAIL,
   DEMO_ADMIN_UID,
   DEMO_ANNOUNCEMENTS,
   DEMO_ASSIGNMENT_SPECS,
@@ -256,7 +257,7 @@ export async function seedPhase1(): Promise<PhaseResult> {
     t.note("schoolMembers", membersSeen.has(uid));
   };
 
-  await addUser(DEMO_ADMIN_UID, "Demo Administrator", "admin@demo.example.com", "admin");
+  await addUser(DEMO_ADMIN_UID, "Demo Administrator", DEMO_ADMIN_EMAIL, "admin");
 
   for (const teacher of DEMO_TEACHERS) {
     const classIds = DEMO_CLASSES.filter((c) => DEMO_TEACHERS[c.teacherIndex].uid === teacher.uid).map((c) => c.id);
@@ -274,7 +275,7 @@ export async function seedPhase1(): Promise<PhaseResult> {
   const authAccounts: { role: string; email: string; uid: string }[] = [];
   const demoTeacher = DEMO_TEACHERS[0];
   const personas = [
-    { role: "admin", uid: DEMO_ADMIN_UID, email: "admin@demo.example.com", name: "Demo Administrator", pw: process.env.DEMO_ADMIN_PASSWORD },
+    { role: "admin", uid: DEMO_ADMIN_UID, email: DEMO_ADMIN_EMAIL, name: "Demo Administrator", pw: process.env.DEMO_ADMIN_PASSWORD },
     { role: "teacher", uid: demoTeacher.uid, email: demoTeacher.email, name: demoTeacher.fullName, pw: process.env.DEMO_TEACHER_PASSWORD },
   ];
   for (const p of personas) {

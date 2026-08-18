@@ -8,8 +8,15 @@
 // rather than creating new ones) and what makes the reset safe
 // (it can only ever match documents carrying these ids).
 //
-// All people are fictional. Emails are on example.com, which is
-// reserved by RFC 2606 and can never route to a real inbox.
+// All people are fictional. The roster uses example.com, which RFC 2606
+// reserves so it can never route to a real inbox. The FOUR login
+// personas instead use nexus-demo.school, because those addresses are
+// published in the README for judges and a memorable address is worth
+// more there than the reserved-domain guarantee — they are still
+// fictional, and Firebase Auth never sends mail to them.
+//
+// These four MUST stay identical to the credentials table in README.md:
+// a mismatch means a judge's login fails with "user not found".
 // ============================================================
 import type { AttendanceStatus, SubmissionStatus, Weekday } from "@/types";
 
@@ -25,6 +32,13 @@ export const DEMO_UID_PREFIX = "demo-";
 // The four accounts a judge actually logs in as. Their uids are fixed
 // so re-seeding updates the same accounts instead of orphaning them.
 export const DEMO_ADMIN_UID = "demo-admin";
+/**
+ * The admin address is a named constant because it is needed in two
+ * places in the seeder (the identity document and the Auth account).
+ * Two literals is exactly how the README and the seed drifted apart
+ * once already.
+ */
+export const DEMO_ADMIN_EMAIL = "demo.admin@nexus-demo.school";
 export const DEMO_TEACHER_UID = "demo-teacher";
 export const DEMO_STUDENT_UID = "demo-student";
 export const DEMO_PARENT_UID = "demo-parent";
@@ -45,7 +59,7 @@ export interface DemoTeacher {
  * teacher is ever double-booked, without needing a search.
  */
 export const DEMO_TEACHERS: DemoTeacher[] = [
-  { uid: DEMO_TEACHER_UID, fullName: "Ananya Sharma", email: "ananya.sharma@demo.example.com", subject: "Mathematics", department: "Science & Mathematics" },
+  { uid: DEMO_TEACHER_UID, fullName: "Ananya Sharma", email: "demo.teacher@nexus-demo.school", subject: "Mathematics", department: "Science & Mathematics" },
   { uid: "demo-t-02", fullName: "Rahul Mehta", email: "rahul.mehta@demo.example.com", subject: "Physics", department: "Science & Mathematics" },
   { uid: "demo-t-03", fullName: "Priya Nair", email: "priya.nair@demo.example.com", subject: "English", department: "Languages" },
   { uid: "demo-t-04", fullName: "Arjun Rao", email: "arjun.rao@demo.example.com", subject: "Computer Science", department: "Science & Mathematics" },
@@ -135,7 +149,7 @@ export function buildDemoStudents(): DemoStudent[] {
       students.push({
         uid: isDemoAccount ? DEMO_STUDENT_UID : `demo-s-${seq}`,
         fullName: isDemoAccount ? "Aarav Iyer" : `${first} ${last}`,
-        email: isDemoAccount ? "aarav.iyer@demo.example.com" : `${first.toLowerCase()}.${last.toLowerCase()}${seq}@demo.example.com`,
+        email: isDemoAccount ? "demo.student@nexus-demo.school" : `${first.toLowerCase()}.${last.toLowerCase()}${seq}@demo.example.com`,
         classId: cls.id,
         rollNumber: String(i + 1).padStart(2, "0"),
         gender: idx % 2 === 0 ? "Male" : "Female",
@@ -177,7 +191,7 @@ export function buildDemoParents(students: DemoStudent[]): DemoParent[] {
     parents.push({
       uid: isDemoAccount ? DEMO_PARENT_UID : `demo-p-${seq}`,
       fullName: isDemoAccount ? `Rekha ${surname}` : `${i % 4 === 0 ? "Sunil" : "Kavita"} ${surname}`,
-      email: isDemoAccount ? "rekha.iyer@demo.example.com" : `parent${seq}@demo.example.com`,
+      email: isDemoAccount ? "demo.parent@nexus-demo.school" : `parent${seq}@demo.example.com`,
       contactPhone: `+91 90000 ${String(10000 + Math.floor(i / 2)).slice(-5)}`,
       childIds: pair.map((s) => s.uid),
       relationship: i % 4 === 0 ? "Father" : "Mother",
