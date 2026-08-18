@@ -32,6 +32,9 @@ merely looking strict.
 Sign in with any of the four accounts below to explore NEXUS from that role's
 point of view. No setup, no local install.
 
+> [!NOTE]
+> **Production Application vs. Demo Setup:** NEXUS is a **fully functional, real-world school operating system**—not a static prototype or sandbox mockup. Every single screen, AI query, attendance capture, and fee payment operates against live backend database services. The pre-seeded demo environment below was specifically designed so judges and evaluators can instantly test the rich, end-to-end multi-role workflows without needing to build a school from scratch.
+
 ### Demo credentials
 
 | Role | Email | Password |
