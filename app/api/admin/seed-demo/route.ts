@@ -20,9 +20,20 @@
 // itself created. See lib/server/demo-seed.ts.
 // ============================================================
 import { timingSafeEqual } from "node:crypto";
-import { isAdminConfigured, adminProjectId } from "@/lib/server/firebase-admin";
-import { resetDemoSchool, seedDemoSchool } from "@/lib/server/demo-seed";
 import { DEMO_SCHOOL_ID } from "@/lib/server/demo-seed-data";
+
+// firebase-admin is loaded with a dynamic import INSIDE the handler,
+// never at module scope. Two reasons, both of which showed up in
+// production:
+//
+//  1. A top-level import runs before any of this route's own logic, so
+//     if the SDK fails to initialise in the serverless bundle the
+//     platform returns a bare 500 HTML page and the carefully written
+//     401/503 responses below never execute. Deferring the import means
+//     an unauthorised caller gets a clean 401 whatever state the SDK is
+//     in, and a real failure surfaces as JSON we can read.
+//  2. An unauthenticated request should not be able to make the server
+//     load a heavy privileged SDK at all.
 
 // firebase-admin needs the Node runtime — it cannot run on Edge.
 export const runtime = "nodejs";
@@ -70,12 +81,31 @@ export async function POST(request: Request) {
   const auth = authorize(request);
   if (!auth.ok) return auth.response;
 
-  if (!isAdminConfigured()) {
+  // Cheap env check before paying for the SDK import.
+  if (!process.env.FIREBASE_SERVICE_ACCOUNT?.trim()) {
     return Response.json(
       { error: "FIREBASE_SERVICE_ACCOUNT is not set on the server." },
       { status: 503 }
     );
   }
+
+  let admin: typeof import("@/lib/server/firebase-admin");
+  let seeder: typeof import("@/lib/server/demo-seed");
+  try {
+    [admin, seeder] = await Promise.all([
+      import("@/lib/server/firebase-admin"),
+      import("@/lib/server/demo-seed"),
+    ]);
+  } catch (err) {
+    // Previously this failure happened at module scope and became an
+    // opaque 500 page. Now it is reportable.
+    return Response.json(
+      { error: `Failed to load the Admin SDK: ${err instanceof Error ? err.message : String(err)}` },
+      { status: 500 }
+    );
+  }
+  const { adminProjectId } = admin;
+  const { resetDemoSchool, seedDemoSchool } = seeder;
 
   // The credential must belong to the same Firebase project the app
   // itself points at. Without this, a mistakenly pasted service account
