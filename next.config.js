@@ -10,7 +10,13 @@ const nextConfig = {
     // 500 HTML page before any of the route's own error handling runs.
     // Listing it here leaves it as a plain runtime require from
     // node_modules. Server-only; nothing about this reaches the client.
-    serverComponentsExternalPackages: ["firebase-admin"],
+    //
+    // jwks-rsa and jose must also be externalised: jwks-rsa is CJS and
+    // jose v6 is ESM-only. When the bundler inlines them both, the
+    // CJS require('jose') call fails at runtime with "require() of
+    // ES Module ... not supported". Keeping them unbundled lets Node's
+    // own module resolver handle the CJS→ESM interop correctly.
+    serverComponentsExternalPackages: ["firebase-admin", "jwks-rsa", "jose"],
   },
   images: {
     remotePatterns: [
