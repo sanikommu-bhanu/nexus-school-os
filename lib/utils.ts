@@ -49,3 +49,40 @@ export function generateClassCode(grade: string, section: string, subject: strin
   const random = generateJoinCode("", 4).replace("-", "");
   return `NX${grade}${section}-${subjectTag}-${random}`;
 }
+
+/**
+ * Coerces a Firestore-shaped timestamp into a real `Date`.
+ *
+ * Every service in this app declares `createdAt: string` on its
+ * interface but writes `serverTimestamp()` — so what comes back from
+ * `d.data() as T` is a Firestore `Timestamp`, not the ISO string the
+ * type promises. `new Date(timestamp)` on that object yields Invalid
+ * Date, which is how a real, correctly-stored record ends up rendering
+ * as "Invalid Date" in the UI.
+ *
+ * Accepts all three shapes that can legitimately reach a render path:
+ * a `Timestamp` (normal read), an ISO string (optimistic local value
+ * returned by the create functions before any re-read), or a `Date`.
+ * Returns null when there is nothing usable, so callers render a dash
+ * rather than a broken date.
+ */
+export function toDate(value: unknown): Date | null {
+  if (!value) return null;
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+
+  // Firestore Timestamp — duck-typed rather than imported so this stays
+  // usable from code that never touches the SDK.
+  if (typeof value === "object" && typeof (value as { toDate?: unknown }).toDate === "function") {
+    const d = (value as { toDate: () => Date }).toDate();
+    return isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof value === "object" && typeof (value as { seconds?: unknown }).seconds === "number") {
+    return new Date((value as { seconds: number }).seconds * 1000);
+  }
+
+  if (typeof value === "string" || typeof value === "number") {
+    const d = new Date(value);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}

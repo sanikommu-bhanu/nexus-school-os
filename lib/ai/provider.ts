@@ -111,6 +111,25 @@ const DEFAULT_TIMEOUT_MS = 12_000;
 // thinkingBudget:0 is the setting that works.)
 const NO_THINKING = { thinkingBudget: 0 } as const;
 
+// ...but not every model accepts that spelling. Verified against the
+// live API: gemini-3.5-flash-lite rejects thinkingConfig.thinkingBudget
+// outright with 400 INVALID_ARGUMENT, while gemini-3.5-flash and
+// gemini-flash-latest accept it. Since the -lite model is the FIRST
+// fallback, the whole chain used to degrade badly: the moment the
+// primary was rate-limited or busy, candidate two died on a malformed
+// request and only the third had a chance of answering.
+//
+// thinkingLevel:"low" was re-tested on all three candidates and returns
+// real content (finishReason STOP) on every one, so it is the spelling
+// used wherever thinkingBudget is refused. The primary path keeps
+// thinkingBudget:0 exactly as before — this only repairs the fallbacks.
+const LOW_THINKING = { thinkingLevel: "low" } as const;
+
+/** Models that 400 on thinkingBudget and need the thinkingLevel spelling. */
+function thinkingConfigFor(model: string): Record<string, unknown> {
+  return /-lite/.test(model) ? LOW_THINKING : NO_THINKING;
+}
+
 function withTimeout(ms: number): { signal: AbortSignal; cancel: () => void } {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ms);
@@ -168,7 +187,7 @@ export class GeminiProvider implements AIProvider {
               generationConfig: {
                 temperature: req.temperature ?? 0.3,
                 maxOutputTokens: req.maxOutputTokens ?? 300,
-                thinkingConfig: NO_THINKING,
+                thinkingConfig: thinkingConfigFor(model),
                 ...(req.jsonMode ? { responseMimeType: "application/json" } : {}),
               },
             }),
@@ -273,7 +292,7 @@ export class GeminiProvider implements AIProvider {
               generationConfig: {
                 temperature: 0.1,
                 maxOutputTokens: 2000,
-                thinkingConfig: NO_THINKING,
+                thinkingConfig: thinkingConfigFor(model),
                 responseMimeType: "application/json",
               },
             }),

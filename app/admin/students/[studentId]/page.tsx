@@ -13,7 +13,10 @@ import { getStudentProfile } from "@/services/student-service";
 import { getUserProfiles } from "@/services/user-service";
 import { getClassById } from "@/services/class-service";
 import { getAttendanceForStudent, summarizeAttendance } from "@/services/attendance-service";
-import type { ClassEntity, StudentProfile, UserProfile } from "@/types";
+import { getSupportNotesForStudent, type SupportNote } from "@/services/support-note-service";
+import { toDate } from "@/lib/utils";
+import type { ClassEntity, StudentProfile, UserProfile } from "@/types";
+
 import { Stat } from "@/components/ui/Stat";
 
 export default function AdminStudentDetailPage() {
@@ -23,6 +26,8 @@ export default function AdminStudentDetailPage() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [cls, setCls] = useState<ClassEntity | null>(null);
   const [attendance, setAttendance] = useState<ReturnType<typeof summarizeAttendance> | null>(null);
+  const [notes, setNotes] = useState<SupportNote[]>([]);
+  const [authors, setAuthors] = useState<Map<string, UserProfile>>(new Map());
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -31,15 +36,28 @@ export default function AdminStudentDetailPage() {
     (async () => {
       const s = await getStudentProfile(studentId);
       if (!s) { setLoading(false); return; }
-      const [u, c, records] = await Promise.all([
+      const [u, c, records, supportNotes] = await Promise.all([
         getUserProfiles([studentId]),
         getClassById(profile.schoolId!, s.classId),
         getAttendanceForStudent(profile.schoolId!, studentId),
+        // Deliberately swallowed: support notes are supplementary
+        // context on this screen, and a missing composite index or a
+        // rules edit must not blank out the whole student profile
+        // around them — the same posture as countOf() in query-bounds.
+        getSupportNotesForStudent(profile.schoolId!, studentId).catch(() => [] as SupportNote[]),
       ]);
       setStudent(s);
       setUser(u.get(studentId) ?? null);
       setCls(c);
       setAttendance(summarizeAttendance(records));
+      setNotes(supportNotes);
+
+      // Notes store authorId, not a name. Resolve the distinct authors
+      // in one batched read rather than one lookup per note.
+      const authorIds = Array.from(new Set(supportNotes.map((n) => n.authorId)));
+      if (authorIds.length > 0) {
+        setAuthors(await getUserProfiles(authorIds).catch(() => new Map<string, UserProfile>()));
+      }
       setLoading(false);
     })().catch((err) => {
       // A rejected read used to escape unhandled, leaving
@@ -80,6 +98,43 @@ export default function AdminStudentDetailPage() {
               <Row label="Gender" value={student.gender ?? "—"} />
               <Row label="Email" value={user.email ?? "—"} />
             </GlassSurface>
+
+            {/*
+              Support notes are staff-only (firestore.rules restricts the
+              collection to admins and this school's teachers) and are
+              created through the AI "Create support note" confirm flow.
+              Until this block existed the write path had no reader
+              anywhere in the app: a note could be created and was then
+              invisible forever.
+            */}
+            <section className="mt-5">
+              <h3 className="mb-2 px-1 text-sm font-semibold text-ink">
+                Support Notes{notes.length > 0 ? ` (${notes.length})` : ""}
+              </h3>
+              <GlassSurface rounded="2xl" className="flex flex-col divide-y divide-white/8" padded={false}>
+                {notes.length === 0 ? (
+                  <p className="px-4 py-3.5 text-sm text-ink-muted">
+                    No support notes yet. NEXUS AI can propose one from this student&apos;s attendance
+                    and assignment history.
+                  </p>
+                ) : (
+                  notes.map((n) => {
+                    const created = toDate(n.createdAt);
+                    return (
+                      <article key={n.id} className="px-4 py-3.5">
+                        <p className="text-sm text-ink">{n.note}</p>
+                        <p className="mt-1.5 text-xs text-ink-muted">
+                          {authors.get(n.authorId)?.fullName ?? "Staff"}
+                          {created
+                            ? ` · ${created.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+                            : ""}
+                        </p>
+                      </article>
+                    );
+                  })
+                )}
+              </GlassSurface>
+            </section>
           </>
         )}
       </AppShell>

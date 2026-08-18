@@ -14,6 +14,7 @@ import { useAuthUser } from "@/hooks/useAuthUser";
 import { getClassById } from "@/services/class-service";
 import { createAnnouncement, getAnnouncementsForClass } from "@/services/announcement-service";
 import type { Announcement, AnnouncementPriority, ClassEntity } from "@/types";
+import { toDate } from "@/lib/utils";
 import { Megaphone } from "lucide-react";
 
 const PRIORITIES: AnnouncementPriority[] = ["normal", "important", "urgent"];
@@ -125,7 +126,7 @@ export default function TeacherClassAnnouncementsPage() {
                       </div>
                       <p className="text-sm text-ink-muted">{a.message}</p>
                       <p className="mt-1 text-[11px] text-ink-faint">
-                        {new Date(a.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                        {toDate(a.createdAt)?.toLocaleDateString(undefined, { month: "short", day: "numeric" }) ?? ""}
                       </p>
                     </GlassSurface>
                   ))}

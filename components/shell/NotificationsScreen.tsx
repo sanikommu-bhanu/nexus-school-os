@@ -9,10 +9,21 @@ import { LoadingState, EmptyState } from "@/components/ui/States";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { subscribeToNotifications, markAllNotificationsRead, markNotificationRead } from "@/services/notification-service";
 import type { NotificationItem, Role } from "@/types";
+import { toDate } from "@/lib/utils";
 import { Bell, CheckCheck } from "lucide-react";
 
-function timeAgo(iso: string) {
-  const diffMs = Date.now() - new Date(iso).getTime();
+// Takes `unknown`, not `string`: NotificationItem declares createdAt as
+// a string but notification-service writes serverTimestamp() and reads
+// back with a bare `as NotificationItem` cast, so what actually arrives
+// is a Firestore Timestamp. `new Date(timestamp)` is Invalid Date, and
+// this function turned that into the literal text "NaN d ago" on the
+// bell screen. onSnapshot also surfaces createdAt as null for the brief
+// moment between a local write and the server ack, which toDate maps to
+// null rather than to the 1970 epoch.
+function timeAgo(value: unknown) {
+  const at = toDate(value);
+  if (!at) return "Just now";
+  const diffMs = Date.now() - at.getTime();
   const mins = Math.round(diffMs / 60000);
   if (mins < 1) return "Just now";
   if (mins < 60) return `${mins}m ago`;

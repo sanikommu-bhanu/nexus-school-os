@@ -32,6 +32,13 @@ firestore-debug.*.log
 # local env files
 .env
 .env*.local
+# ...and any copy of one. `.env*.local` does NOT match `.env.local.bak`
+# (the suffix falls outside the glob), so a real-secrets backup sat
+# untracked-but-committable until these lines were added.
+.env.local.*
+*.env
+.env.*.bak
+.env.bak
 
 # vercel
 .vercel
@@ -39,3 +46,5 @@ firestore-debug.*.log
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+.vercel
