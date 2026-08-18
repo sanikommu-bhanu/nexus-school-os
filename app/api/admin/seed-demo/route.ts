@@ -10,14 +10,25 @@
 // can't be probed a byte at a time.
 //
 // GET is intentionally unimplemented — seeding is a mutation and must
-// never be reachable by someone simply visiting a URL. There is also
-// no route that returns the service account or the seed secret; the
-// only thing this ever emits is counts and non-secret demo emails.
+// never be reachable by someone simply visiting a URL. Nothing this
+// route emits contains a credential: only counts, phase state, and the
+// non-secret demo email addresses.
+//
+// ORDER OF CHECKS (this order matters)
+//   1. authorize            -> 401 / 503
+//   2. validate the request -> 400
+//   3. credential present   -> 503
+//   4. load the Admin SDK   -> 500 if it cannot load
+//   5. project matches      -> 409
+//   6. run
+// Validation precedes anything Firebase-related so a malformed or
+// unauthorised call is rejected without ever loading the privileged
+// SDK, and so bad input is a 400 regardless of server configuration.
 //
 // SCOPE
-// The handler takes NO school id. It cannot be pointed at a school
-// other than the demo one, and reset only removes documents the seed
-// itself created. See lib/server/demo-seed.ts.
+// The handler takes NO school id — one is never read from the body.
+// Every write is scoped to schools/nexus-demo-school, and reset only
+// removes documents the seed itself created. See lib/server/demo-seed.ts.
 // ============================================================
 import { timingSafeEqual } from "node:crypto";
 import { DEMO_SCHOOL_ID } from "@/lib/server/demo-seed-data";
@@ -38,10 +49,21 @@ import { DEMO_SCHOOL_ID } from "@/lib/server/demo-seed-data";
 // firebase-admin needs the Node runtime — it cannot run on Edge.
 export const runtime = "nodejs";
 // 60s is the ceiling on Vercel's Hobby plan; asking for more is
-// rejected. The seed batches its writes and can be re-run safely
-// (it is idempotent), so a timeout is recoverable rather than fatal.
+// rejected. That budget is exactly why seeding is split into phases,
+// each of which is independently re-runnable.
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
+
+type Phase = 1 | 2 | 3 | 4;
+
+/**
+ * Phase check kept local on purpose: validating the request must not
+ * require importing the seeder (which pulls in firebase-admin), so an
+ * unauthorised or malformed call never loads the privileged SDK.
+ */
+function isPhase(v: unknown): v is Phase {
+  return v === 1 || v === 2 || v === 3 || v === 4;
+}
 
 function tokenMatches(provided: string, expected: string): boolean {
   const a = Buffer.from(provided);
@@ -78,10 +100,35 @@ function authorize(request: Request): { ok: true } | { ok: false; response: Resp
 }
 
 export async function POST(request: Request) {
+  // ---- 1. authorize ----
   const auth = authorize(request);
   if (!auth.ok) return auth.response;
 
-  // Cheap env check before paying for the SDK import.
+  // ---- 2. validate the request ----
+  let body: { action?: string; phase?: unknown } = {};
+  try {
+    body = (await request.json()) as { action?: string; phase?: unknown };
+  } catch {
+    // An empty body is fine and means "seed phase 1".
+  }
+
+  const action = body.action ?? "seed";
+  if (action !== "seed" && action !== "reset") {
+    return Response.json(
+      { error: `Unknown action "${action}". Use "seed" (with a phase) or "reset".` },
+      { status: 400 }
+    );
+  }
+
+  const phase = body.phase ?? 1;
+  if (action === "seed" && !isPhase(phase)) {
+    return Response.json(
+      { error: `Invalid phase ${JSON.stringify(phase)}. Use 1, 2, 3 or 4.` },
+      { status: 400 }
+    );
+  }
+
+  // ---- 3. credential present ----
   if (!process.env.FIREBASE_SERVICE_ACCOUNT?.trim()) {
     return Response.json(
       { error: "FIREBASE_SERVICE_ACCOUNT is not set on the server." },
@@ -89,6 +136,7 @@ export async function POST(request: Request) {
     );
   }
 
+  // ---- 4. load the Admin SDK ----
   let admin: typeof import("@/lib/server/firebase-admin");
   let seeder: typeof import("@/lib/server/demo-seed");
   try {
@@ -97,23 +145,19 @@ export async function POST(request: Request) {
       import("@/lib/server/demo-seed"),
     ]);
   } catch (err) {
-    // Previously this failure happened at module scope and became an
-    // opaque 500 page. Now it is reportable.
     return Response.json(
       { error: `Failed to load the Admin SDK: ${err instanceof Error ? err.message : String(err)}` },
       { status: 500 }
     );
   }
-  const { adminProjectId } = admin;
-  const { resetDemoSchool, seedDemoSchool } = seeder;
 
-  // The credential must belong to the same Firebase project the app
-  // itself points at. Without this, a mistakenly pasted service account
-  // from another project would happily seed a stranger's database.
+  // ---- 5. the credential must match this app's Firebase project ----
+  // Without this, a mistakenly pasted service account from another
+  // project would happily seed a stranger's database.
   const appProject = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
   let credentialProject: string;
   try {
-    credentialProject = adminProjectId();
+    credentialProject = admin.adminProjectId();
   } catch (err) {
     return Response.json({ error: (err as Error).message }, { status: 500 });
   }
@@ -128,31 +172,14 @@ export async function POST(request: Request) {
     );
   }
 
-  let body: { action?: string } = {};
-  try {
-    body = (await request.json()) as { action?: string };
-  } catch {
-    // An empty body is fine and means "seed".
-  }
-  const action = body.action ?? "seed";
-
+  // ---- 6. run ----
   try {
     if (action === "reset") {
-      const result = await resetDemoSchool();
+      const result = await seeder.resetDemoSchool();
       return Response.json({ ok: true, action: "reset", schoolId: DEMO_SCHOOL_ID, ...result });
     }
 
-    if (action === "reseed") {
-      await resetDemoSchool();
-      const result = await seedDemoSchool();
-      return Response.json({ ...result, action: "reseed" });
-    }
-
-    if (action !== "seed") {
-      return Response.json({ error: `Unknown action "${action}". Use seed, reseed or reset.` }, { status: 400 });
-    }
-
-    const result = await seedDemoSchool();
+    const result = await seeder.runSeedPhase(phase as Phase);
     return Response.json({ ...result, action: "seed" });
   } catch (err) {
     // Surface the message (useful: missing index, bad credential shape)
