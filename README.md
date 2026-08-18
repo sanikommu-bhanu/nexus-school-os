@@ -15,6 +15,13 @@ suites, and the **Firestore security-rules suite against a live emulator**, so
 the rules are proven to reject the attacks they claim to reject rather than
 merely looking strict.
 
+> [!IMPORTANT]
+> ### 🏆 Key Technical Innovations for Competition Judges
+> 1. **Zero-Cost Production Architecture**: Built entirely on free-tier services (Firebase Auth/Firestore + Cloudinary + Gemini) with zero cloud bill.
+> 2. **Strict Service Layer Boundaries**: Screens never touch Firestore directly—all I/O passes through service wrappers enforcing single-writer collection discipline.
+> 3. **Grounded AI Security**: Gemini operates strictly via server-side proxies (`/api/ai/ask`) over client-scoped Firestore facts, preventing query injection and hallucinations.
+> 4. **Live-Emulator Security Suite**: Firestore security rules are validated against a live local emulator in CI on every commit.
+
 ---
 
 ## Live Demo
