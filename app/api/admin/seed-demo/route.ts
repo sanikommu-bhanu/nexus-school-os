@@ -24,9 +24,12 @@ import { isAdminConfigured, adminProjectId } from "@/lib/server/firebase-admin";
 import { resetDemoSchool, seedDemoSchool } from "@/lib/server/demo-seed";
 import { DEMO_SCHOOL_ID } from "@/lib/server/demo-seed-data";
 
-// The seed writes thousands of documents and calls the embedding API,
-// so it needs well beyond the default serverless budget.
-export const maxDuration = 300;
+// firebase-admin needs the Node runtime — it cannot run on Edge.
+export const runtime = "nodejs";
+// 60s is the ceiling on Vercel's Hobby plan; asking for more is
+// rejected. The seed batches its writes and can be re-run safely
+// (it is idempotent), so a timeout is recoverable rather than fatal.
+export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 function tokenMatches(provided: string, expected: string): boolean {
