@@ -99,6 +99,70 @@ export async function getAssignmentsForClasses(schoolId: string, classIds: strin
   return results.flatMap((snap) => snap.docs.map((d) => d.data() as Assignment));
 }
 
+/**
+ * One assignment by id. The class workspace already holds the list, but
+ * the grading screen is reachable by direct URL (and by refresh), so it
+ * has to be able to resolve an assignment without that list in memory.
+ */
+export async function getAssignmentById(schoolId: string, assignmentId: string): Promise<Assignment | null> {
+  if (!db) return null;
+  const snap = await getDoc(doc(db, "schools", schoolId, "assignments", assignmentId));
+  return snap.exists() ? (snap.data() as Assignment) : null;
+}
+
+/**
+ * The teacher's grading action.
+ *
+ * `grade` is a free-text string on AssignmentSubmission ("A", "17/20",
+ * "Merit") rather than a number, so this neither parses nor validates a
+ * scale the school hasn't declared — an empty grade clears the mark and
+ * returns the row to its submitted state instead of writing "".
+ *
+ * firestore.rules already allows this: the submissions `update` rule
+ * lets `isClassTeacher(schoolId, resource.data.classId)` write any field,
+ * and pins `grade` only on a student's self-update. No rules change was
+ * needed to add grading — the field and its permission existed, and only
+ * the UI was missing.
+ *
+ * Identifying fields are restated for the same reason markSubmission
+ * restates them: a student who joined after the assignment was created
+ * has no seeded row, so this is a create for them, and the rules read
+ * classId/studentId off the document to decide ownership.
+ */
+export async function gradeSubmission(
+  schoolId: string,
+  assignmentId: string,
+  studentId: string,
+  classId: string,
+  grade: string,
+  currentStatus: SubmissionStatus
+): Promise<void> {
+  if (!db) throw new Error("Firebase isn't configured.");
+  const trimmed = grade.trim();
+  const subId = `${assignmentId}_${studentId}`;
+  await setDoc(
+    doc(db, "schools", schoolId, "assignments", assignmentId, "submissions", subId),
+    {
+      id: subId,
+      assignmentId,
+      studentId,
+      classId,
+      // Clearing a grade must not strand the row as "graded" with no
+      // grade on it, so the status follows the grade: set it and the row
+      // is graded, clear it and it falls back to however it was handed
+      // in. A row that was never submitted stays pending.
+      status: trimmed
+        ? ("graded" as SubmissionStatus)
+        : currentStatus === "graded"
+        ? ("submitted" as SubmissionStatus)
+        : currentStatus,
+      grade: trimmed,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+}
+
 export async function getSubmissionsForAssignment(
   schoolId: string,
   assignmentId: string

@@ -75,6 +75,7 @@ const DYNAMIC = [
   "/teacher/classes/smoke-id/documents",
   "/teacher/classes/smoke-id/announcements",
   "/teacher/classes/smoke-id/assignments/new",
+  "/teacher/classes/smoke-id/assignments/smoke-assignment-id",
   "/student/learn/smoke-id",
 ];
 

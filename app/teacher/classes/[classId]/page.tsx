@@ -171,6 +171,7 @@ export default function TeacherClassWorkspacePage() {
                     return (
                       <ListRow
                         key={a.id}
+                        href={`/teacher/classes/${classId}/assignments/${a.id}`}
                         title={a.title}
                         subtitle={c && c.total > 0 ? `${due} · ${c.submitted} of ${c.total} submitted` : due}
                         trailing={<Badge tone="accent">{a.subject}</Badge>}
